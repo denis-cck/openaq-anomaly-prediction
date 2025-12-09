@@ -12,11 +12,14 @@ setup-reset:
 	@pyenv virtualenvs | grep -q $(PYENV_VIRTUALENV_NAME) && pyenv virtualenv-delete -f $(PYENV_VIRTUALENV_NAME) || true
 # 	@rm -f poetry.lock
 
+# NEED TO ADD A STEP TO INSTALL THE CORRECT PYTHON VERSION WITH PYENV IF NOT EXISTS
+
 env-copy:
 	@if [ ! -f secrets/.env ]; \
 	then cp .env_example secrets/.env; else echo "[Makefile:env-copy]: secrets/.env already exists"; fi
 
 pyenv-create:
+	@pyenv install -s $(PYENV_PYTHON_VERSION)
 	@pyenv virtualenv $(PYENV_PYTHON_VERSION) $(PYENV_VIRTUALENV_NAME) || true
 	@pyenv local $(PYENV_VIRTUALENV_NAME)
 
