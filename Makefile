@@ -9,7 +9,7 @@ setup-reset:
 # 	@echo "\n\033[1;3;34;40m 󱦳󱦳󱦳 PREFECT-START 󱦳󱦳󱦳 \033[0m"
 	@rm -rf .venv
 	@rm -f .python-version
-	@pyenv virtualenv-delete -f $(PYENV_VIRTUALENV_NAME)
+	@pyenv virtualenvs | grep -q $(PYENV_VIRTUALENV_NAME) && pyenv virtualenv-delete -f $(PYENV_VIRTUALENV_NAME) || true
 # 	@rm -f poetry.lock
 
 env-copy:
