@@ -1,7 +1,7 @@
 .PHONY: setup
 # setup: check-uv ignore-pyenv uv-sync
 # setup-dev: reset check-uv ignore-pyenv uv-venv uv-sync-dev
-setup: setup-reset pyenv-create poetry-install
+setup: setup-reset env-copy pyenv-create poetry-install
 
 setup-reset:
 	@echo "\n\033[1;4;32m> Install dependencies with Poetry...\033[0m\n"
@@ -11,6 +11,10 @@ setup-reset:
 	@rm -f .python-version
 	@pyenv virtualenv-delete -f $(PYENV_VIRTUALENV_NAME)
 # 	@rm -f poetry.lock
+
+env-copy:
+	@if [ ! -f secrets/.env ]; \
+	then cp .env_example secrets/.env; else echo "[Makefile:env-copy]: secrets/.env already exists"; fi
 
 pyenv-create:
 	@pyenv virtualenv $(PYENV_PYTHON_VERSION) $(PYENV_VIRTUALENV_NAME) || true
