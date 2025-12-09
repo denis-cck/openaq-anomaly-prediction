@@ -14,6 +14,8 @@ class Configuration:
     # Results and logging
     # Model parameters
 
+    # TODO: Load the environment variables in the class
+
     def __init__(self) -> None:
         pass
 
