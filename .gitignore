@@ -1,4 +1,4 @@
-pyproject.toml
+# pyproject.toml
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -138,6 +138,9 @@ secrets/*
 
 # data files
 data/* 
+
+# data files
+logs/* 
 
 # pyproject.toml.bak - created by makefile
 pyproject.toml.bak

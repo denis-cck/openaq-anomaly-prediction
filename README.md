@@ -12,6 +12,10 @@ Welcome to the **OpenAQ Anomaly Prediction** project: an end-to-end project to m
 
 # Quick Start
 
+## PREREQUISITES
+- `direnv`
+- `pip`
+
 ## 1. Clone the repository
 
 ```bash
