@@ -212,20 +212,18 @@ def _safe_serialize(obj):
     if np is not None and isinstance(obj, (np.generic,)):
         return obj.item()
 
-    # Exceptions
+    # Exceptions (handle all BaseException types)
     if isinstance(obj, BaseException):
-        if obj.__class__.__name__ == "HTTPError" and hasattr(obj, "response"):
-            return {
-                "type": obj.__class__.__name__,
-                "message": str(obj),
-                "status_code": obj.response.status_code,
-                "url": obj.response.url,
-            }
-        return {
+        error_dict = {
             "type": obj.__class__.__name__,
             "message": str(obj),
             "args": obj.args,
         }
+        # Buggy, commented out for now: # Try to add status_code if it exists (HTTPError):
+        # if hasattr(obj, "response") and hasattr(obj.response, "status_code"):
+        #     error_dict["status_code"] = obj.response.status_code
+        #     error_dict["url"] = obj.response.url
+        return error_dict
 
     # Datetime-like
     from datetime import date, datetime
