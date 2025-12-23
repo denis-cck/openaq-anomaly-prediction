@@ -27,7 +27,14 @@ from openaq_anomaly_prediction.utils.helpers import (
     parquets_to_csv,
     save_logs,
 )
-from openaq_anomaly_prediction.utils.logging import ProgressLogger, logger
+from openaq_anomaly_prediction.utils.logging import (
+    ProgressLogger,
+    b,
+    grey,
+    hex,
+    logger,
+    rst,
+)
 
 ArrayConvertible = Union[list, tuple, AnyArrayLike]
 Scalar = Union[float, str]
@@ -58,11 +65,11 @@ class OpenAQ_Client:
         self.locations = None
         self.sensors = None
 
-        logger.success(f'OPENAQ: APIKEY="{config.getenv("OPENAQ_API_KEY")}"')
+        # logger.success(f'OPENAQ: APIKEY="{config.getenv("OPENAQ_API_KEY")}"')
 
     def get_ratelimit_string(self) -> str:
         """Get a string representation of the current rate limit status."""
-        return f"usd:{self.ratelimit_used}, rem:{self.ratelimit_remaining}, rst:{self.ratelimit_reset}s"
+        return f"usd:{self.ratelimit_used:>2}, rem:{self.ratelimit_remaining:>2}, rst:{self.ratelimit_reset:>2}s"
 
     def clear_ratelimits(self) -> None:
         """Reset rate limit tracking variables."""
@@ -90,10 +97,15 @@ class OpenAQ_Client:
         # if self.ratelimit_remaining >= 0 and self.ratelimit_remaining < 5:
         if self.should_wait():
             # if verbose >= 1:
-            logger.warning(
-                f"Approaching rate limit. Remaining requests: {self.ratelimit_remaining}. Waiting for reset in {self.ratelimit_reset} seconds."
+            logger.trace(
+                f"{hex('#dfa934')}WAIT{rst()}{grey()}: {f'Waiting for reset in {self.ratelimit_reset}s':<26} ({self.ratelimit_remaining} remaining)"
             )
+            # logger.warning(f"{grey()}Approaching rate limit. Remaining requests: {self.ratelimit_remaining}. Waiting for reset in {self.ratelimit_reset} seconds.{rst()}")
             time.sleep(self.ratelimit_reset + 1)
+
+            self.ratelimit_used = 0
+            self.ratelimit_remaining = 60
+            self.ratelimit_reset = 60
 
         # Make the Request
         try:
@@ -114,7 +126,6 @@ class OpenAQ_Client:
             #     raise requests.exceptions.HTTPError(
             #         "Simulated HTTP error for testing.", response=response
             #     )
-
             # # ---------------------------------------------------------------------
 
             if verbose >= 5:
@@ -131,11 +142,21 @@ class OpenAQ_Client:
             # Convert columns with "datetime" in their names to datetime types
             datetime_columns = [col for col in results.columns if "datetime" in col]
             for col in datetime_columns:
-                results[col] = pd.to_datetime(results[col])
+                results[col] = pd.to_datetime(results[col], utc=True)
+                # print(results[col].dtype)
 
             return {"meta": data["meta"], "results": results}
 
         except requests.exceptions.HTTPError as err:
+            # TODO: just test for string "429 Too Many Requests" directly in the error message (kinda broken but eh)
+            # Rate limit handling: wait for reset if 429 Too Many Requests (if spamming 400/500 errors)
+            if err.response.status_code == 429 or "429 Client Error" in str(err):
+                print()
+                logger.warning(
+                    f"{hex('#dfa934')}[{err.response.status_code}] RATE LIMIT{rst()}{grey()}: Hit rate limit. Waiting for 60s...{rst()}"
+                )
+                time.sleep(60)  # Wait for 60 seconds before retrying
+
             # print(f"HTTP error occurred: {err}")
             # print(response.text)  # Print the error message from OpenAQ
             raise err
@@ -146,8 +167,8 @@ class AreaDownloader:
         self.area_name = kwargs.get("area_name", "unknown_area")
         self.verbose = kwargs.get("verbose", 0)
 
-        self.locations = None
-        self.sensors = None
+        self.locations: pd.DataFrame = None
+        self.sensors: pd.DataFrame = None
 
     # ---------------------------------------------------------------------
     # STATIC FUNCTIONS
@@ -174,6 +195,15 @@ class AreaDownloader:
     def print_period_logs(
         all_period_logs: list[dict[str, Any]], show_errors: bool = False
     ) -> None:
+        # TODO: Fix errors:
+        # Traceback (most recent call last):
+        # File "/home/deniscck/code/denis-cck/openaq_anomaly_prediction/openaq_download.py", line 82, in <module>
+        #     AreaDownloader.print_period_logs(all_logs, True)
+        # File "/home/deniscck/code/denis-cck/openaq_anomaly_prediction/src/openaq_anomaly_prediction/load/openaq.py", line 187, in print_period_logs
+        #     if period["status"] == "completed":
+        #     ~~~~~~^^^^^^^^^^
+        # TypeError: list indices must be integers or slices, not str
+
         for period in all_period_logs:
             if period["status"] == "completed":
                 logger.success(
@@ -327,6 +357,8 @@ class AreaDownloader:
         suffix_msg = "" if suffix_msg is None else suffix_msg + " "  # default
         inline_sensor_str = f"[sensor_id={sensor_id}]"
 
+        progress = ProgressLogger()
+
         # 1. Start message (verbose 2+, 5+ or inline progress)
         start_message = (
             f"{'Fetching measurements...':<32} {suffix_msg}{inline_sensor_str}"
@@ -334,7 +366,6 @@ class AreaDownloader:
         if verbose >= 2 and not inline_progress:
             logger.info(start_message)
 
-        progress = ProgressLogger()
         if verbose >= 5 and inline_progress:
             max_sensor_length += 12  # extra space for "[sensor_id=...]"
 
@@ -342,10 +373,27 @@ class AreaDownloader:
 
         start_time = time.perf_counter()
 
+        # 1.1. EXIT: Exlude banned sensors
+        # Doesn't work because a sensor can be bad only for a specific period
+        # if sensor_id in config.get_excluded_sensors():
+        #     if verbose >= 5:
+        #         progress_update = ""
+        #         progress.print(
+        #             f"{hex('#c1372e')}EXCL{rst() + grey()}  {'Excluded sensor':<26} {suffix_msg}{inline_sensor_str:<{max_sensor_length}} |",
+        #             # f"----  {'Excluded sensor':<26} {suffix_msg}{inline_sensor_str:<{max_sensor_length}} | {'EXCLUDED SENSOR':<12}",
+        #             prefix_msg=prefix_msg,
+        #             suffix_msg=suffix_msg,
+        #             last=True,
+        #         )
+        #     elif verbose >= 1:
+        #         logger.success(f"Excluded sensor (sensor_id={sensor_id})")
+        #     return pd.DataFrame()
+
         # 2. Start LOOP to fetch all pages
         page = 1
         found_value = -1  # -1 = first time, 0 = no results, >0 = number of results
         all_measurements = pd.DataFrame()
+        all_results = []
         while True:
             if client.should_wait() and verbose >= 5:
                 print()  # Move to a new line before waiting
@@ -399,11 +447,21 @@ class AreaDownloader:
             results = res["results"][reordered_columns]
 
             # Not great but whatever
-            all_measurements = pd.concat([all_measurements, results])
+            if len(results) == 0:
+                logger.trace(
+                    f"No results for sensor_id={sensor_id} in the given period (triggered warning on page {page})."
+                )
+            else:
+                all_results.extend(results.to_dict(orient="records"))
+
+            # FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated.
+            # In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes.
+            # To retain the old behavior, exclude the relevant entries before the concat operation.
+            # all_measurements = pd.concat([all_measurements, results])
 
             if verbose >= 5:
-                progress_update = f"{len(all_measurements)}/{found_value} measurements"
-                if len(all_measurements) == found_value:  # last step
+                progress_update = f"{len(all_results)}/{found_value} measurements"
+                if len(all_results) == found_value:  # last step
                     message = f"{progress_update:<26} {suffix_msg}{inline_sensor_str:<{max_sensor_length}} | {req_message}: -> {client.get_ratelimit_string()}"
                     last = True
                 else:
@@ -412,22 +470,20 @@ class AreaDownloader:
 
                 progress.print(
                     message,
-                    current_progress=len(all_measurements),
+                    current_progress=len(all_results),
                     total_progress=found_value,
                     prefix_msg=prefix_msg,
                     last=last,
                 )
 
             # 5. EXIT: All measurements retrieved
-            if len(all_measurements) >= found_value:
+            if len(all_results) >= found_value:
                 if verbose >= 1 and not inline_progress:
                     # if verbose >= 5:
                     #     print()
                     # if not inline_progress:
                     measurements_msg = (
-                        "0"
-                        if found_value == 0
-                        else f"{len(all_measurements)}/{found_value}"
+                        "0" if found_value == 0 else f"{len(all_results)}/{found_value}"
                     )
                     logger.success(
                         f"Retrieved {measurements_msg} measurements in {exec_time(start_time):.2f}s (sensor_id={sensor_id})"
@@ -436,8 +492,13 @@ class AreaDownloader:
 
             page += 1
 
-        if len(all_measurements) > 0:
+        if len(all_results) > 0:
+            all_measurements = pd.DataFrame(all_results)
             AreaDownloader.standardized_measurements_sorting(all_measurements)
+        # else:
+        #     all_measurements = pd.DataFrame()
+
+        # print(all_measurements.head())
 
         return all_measurements
 
@@ -498,7 +559,7 @@ class AreaDownloader:
                 if len(df_measurements) > 0:
                     # Save to Parquet files
                     parquet_file = os.path.join(
-                        output_path, f"{run_id}_sensor_{sensor_id}.parquet"
+                        output_path, f"{run_id}_sensor_{sensor_id}.raw.parquet"
                     )
                     df_measurements.to_parquet(
                         parquet_file,
@@ -566,7 +627,7 @@ class AreaDownloader:
         verbose = kwargs.get("verbose", 5)
 
         retries = kwargs.get("retries", 0)
-        max_retries = kwargs.get("max_retries", 10)
+        max_retries = kwargs.get("max_retries", 5)
 
         prefix_msg = kwargs.get("prefix_msg", None)
         suffix_msg = kwargs.get("suffix_msg", None)
@@ -624,7 +685,7 @@ class AreaDownloader:
                 logger.warning(
                     f"[RETRY={retries + 1}] RUN_ID [{run_id}] with {len(run_logs['errors'])} error{'s' if len(run_logs['errors']) != 1 else ''}..."
                 )
-                print()
+                # print()
 
                 sensors_to_retry = []
                 for error in run_logs["errors"]:
@@ -701,7 +762,7 @@ class AreaDownloader:
         # Overwrite parameters (if provided)
         sensors_id = kwargs.get("sensors_id", None)
         run_id = kwargs.get("run_id", None)
-        max_retries = kwargs.get("max_retries", 10)
+        max_retries = kwargs.get("max_retries", 5)
 
         # Customize logs
         # year = kwargs.get("year", 2023)
@@ -711,7 +772,7 @@ class AreaDownloader:
         start_time = time.perf_counter()
 
         logger.info(
-            f"[OPENAQ] Fetching all measurements for [{self.area_name.upper()}][{run_label}]..."
+            f"[{self.area_name.upper()}][{run_label}] Fetching all measurements..."
         )
 
         # FILTER the sensors with valid locations (with valid datetimeFirst.utc and datetimeLast.utc)
@@ -764,15 +825,15 @@ class AreaDownloader:
         # Retrieve all Parquet files for the run manually
         parquet_files = get_parquet_filepaths(run_id)
         logger.trace(
-            f"Found {len(parquet_files)} parquet files in data/parquet/{run_id}/*.parquet"
+            f"Found {len(parquet_files)} parquet files in data/parquet/{run_id}/*.raw.parquet"
         )
 
         # Save the trimester CSV file
-        parquets_to_csv(parquet_files, f"{run_id}.csv", config.DATA_CSV_PATH)
+        parquets_to_csv(parquet_files, f"{run_id}.raw.csv", config.DATA_CSV_PATH)
 
         period_logs["saving_duration"] = exec_time(save_start_time, 2)
         logger.debug(
-            f"[SAVED] Created data/csv/{run_id}.csv from {len(parquet_files)} parquet files in {exec_time(save_start_time):.2f}s"
+            f"[SAVED] Created data/csv/{run_id}.raw.csv from {len(parquet_files)} parquet files in {exec_time(save_start_time):.2f}s"
         )
 
         # --------------------------------------------------------------------------------------------
@@ -802,6 +863,144 @@ class AreaDownloader:
         )
 
         return period_logs
+
+    def get_clean_measurements(self, df: pd.DataFrame) -> pd.DataFrame:
+        # ---------------------------------------------------------------------
+        # CLEAN MEASUREMENTS DATAFRAME
+        # print(f"{'-' * 44}\nCLEANING [MEASUREMENTS] DATAFRAME:")
+        clean_measurements = df[
+            [
+                "sensor_id",
+                "value",
+                "parameter.id",
+                "parameter.name",
+                "parameter.units",
+                "period.datetimeFrom.local",
+                "period.datetimeTo.local",
+                "period.datetimeFrom.utc",
+                "period.datetimeTo.utc",
+                "coverage.expectedCount",
+                "coverage.observedCount",
+            ]
+        ]
+        # display(clean_measurements.head(1))
+
+        # CLEAN SENSORS DATAFRAME
+        # print(f"\n{'-' * 44}\nCLEANING [SENSORS] DATAFRAME:")
+        clean_sensors = self.sensors[
+            [
+                "location_id",
+                "id",
+                "name",
+                "parameter.displayName",
+            ]
+        ]
+        # display(clean_sensors.head(1))
+
+        # CLEAN LOCATIONS DATAFRAME
+        # print(f"\n{'-' * 44}\nCLEANING [LOCATIONS] DATAFRAME:")
+        clean_locations = self.locations[
+            [
+                "id",
+                "name",
+                "isMobile",
+                "isMonitor",  # Maybe it's whether it's recognized as an "official" monitoring station or not?
+                "country.id",
+                "country.code",
+                "country.name",
+                "owner.id",
+                "owner.name",
+                "provider.id",
+                "provider.name",
+                "coordinates.latitude",
+                "coordinates.longitude",
+                # KEEP BUT DON'T NEED FOR MEASUREMENTS
+                # "datetimeFirst.local",
+                # "datetimeLast.local",
+                "datetimeFirst.utc",
+                "datetimeLast.utc",
+                # CUSTOM FIELDS
+                # "sensors_flat",  # custom field added in AreaDownloader
+                # "instruments_flat",  # TODO: custom field added in AreaDownloader.
+                #    Not very standardized (sometimes duplicates) and no way of linking it to sensors/measurements.
+                #    You can only know which instruments are used in a location, but not which instrument is used for which sensor/parameter.
+                #    So for now we just keep it for reference but don't use it.
+                # EMPTY IN NEW DELHI
+                # "locality",  # TODO: ???: 106/107 empty in New Delhi
+                # "bounds",  # TODO: ???: all locations have fixed coordinates (no bounds just a point)
+                # "distance",  # TODO: ???: fully empty in New Delhi
+                # "licenses",  # TODO: ???: Vast majority of locations have NaN here, but there are some. Even then is that really useful? IDK just drop it
+                # DON'T KEEP
+                # "instruments",
+                # "sensors",
+                # "timezone",  # all the same usually for a city-sized area, and doesn't really influence the measurements themselves
+                # "datetimeFirst",  # NaT (not a time) for all locations in New Delhi
+                # "datetimeLast",  # NaT (not a time) for all locations in New Delhi
+            ]
+        ].rename(
+            columns={
+                "id": "location_id",
+                "name": "location_name",
+                "datetimeFirst.utc": "location.datetimeFirst.utc",
+                "datetimeLast.utc": "location.datetimeLast.utc",
+            }
+        )
+
+        # ---------------------------------------------------------------------
+        # JOIN THE MEASUREMENTS WITH THE SENSORS ON SENSOR_ID
+        df_joined = clean_measurements.join(
+            clean_sensors.set_index("id"), on="sensor_id", how="left"
+        )
+
+        # JOIN THE PREVIOUS RESULT WITH THE LOCATIONS ON LOCATION_ID
+        df_final = df_joined.join(
+            clean_locations.set_index("location_id"), on="location_id", how="left"
+        )
+
+        # JOIN THE PREVIOUS RESULT WITH THE TEMPERATURES ON SENSOR_ID AND DATETIME
+        # TODO: Yep.
+
+        # REORDER COLUMNS
+        ordered_columns = [
+            "location_id",
+            "sensor_id",
+            "name",
+            "value",
+            "parameter.id",
+            "parameter.name",
+            "parameter.units",
+            "parameter.displayName",
+            "period.datetimeFrom.local",
+            "period.datetimeTo.local",
+            "period.datetimeFrom.utc",
+            "period.datetimeTo.utc",
+            "location.datetimeFirst.utc",
+            "location.datetimeLast.utc",
+            "coordinates.latitude",
+            "coordinates.longitude",
+            "location_name",
+            "isMobile",
+            "isMonitor",
+            "country.id",
+            "country.code",
+            "country.name",
+            "owner.id",
+            "owner.name",
+            "provider.id",
+            "provider.name",
+            "coverage.expectedCount",
+            "coverage.observedCount",
+        ]
+        df_final = df_final[ordered_columns]
+
+        # Convert columns with "datetime" in their names to datetime types
+        datetime_columns = [col for col in df_final.columns if "datetime" in col]
+        for col in datetime_columns:
+            df_final[col] = pd.to_datetime(df_final[col])
+
+        # print(f"Final measurements dataframe memory usage: {df_final.memory_usage(index=True, deep=True).sum() / 1024 ** 2:.2f} MB")
+
+        return df_final
 
 
 client = OpenAQ_Client()

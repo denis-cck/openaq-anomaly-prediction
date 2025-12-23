@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import List, Tuple
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 from openaq_anomaly_prediction.config import Configuration as config
 from openaq_anomaly_prediction.utils.logging import ProgressLogger, logger
@@ -122,12 +124,14 @@ def get_trimestrial_periods(year: int) -> List[Tuple[str, str]]:
 #     # logger.success(f"Concatenated {len(all_files)} CSV files into {output_path}")
 
 
-def get_parquet_filepaths(relative_path: str) -> list[str]:
+def get_parquet_filepaths(
+    relative_path: str, search_pattern: str = "*.parquet"
+) -> list[str]:
     """Get all Parquet file paths from the default Parquet data directory."""
     parquet_path = config.DATA_PARQUET_PATH
     if relative_path is not None:
         parquet_path = os.path.join(parquet_path, relative_path)
-    all_files = glob.glob(os.path.join(parquet_path, "*.parquet"))
+    all_files = glob.glob(os.path.join(parquet_path, search_pattern))
     return all_files
 
 
@@ -158,7 +162,7 @@ def parquets_to_csv(
             df.to_csv(output_csv_path, mode="a", index=False, header=False)
 
         progress.print(
-            f"Appending parquet files to CSV -> data/csv/{filename}",
+            f"Appending parquet files to final CSV -> data/csv/{filename}",
             current_progress=i + 1,
             total_progress=total_files,
             prefix_msg=f"{i + 1}/{total_files}",
@@ -170,6 +174,9 @@ def concat_csv_to_csv(
     files: list[str], filename: str, output_path: str | Path = config.DATA_CSV_PATH
 ) -> None:
     """Concatenate multiple CSV files into a single CSV file."""
+
+    progress = ProgressLogger()
+    total_files = len(files)
 
     output_csv_path = os.path.join(output_path, filename)  # custom output path
     os.makedirs(output_path, exist_ok=True)
@@ -183,11 +190,63 @@ def concat_csv_to_csv(
             continue  # Skip to the next file
 
         if i == 0:
-            # First file: Write the header row
+            # First file: Write the header row and reset file (w)
             df.to_csv(output_csv_path, mode="w", index=False, header=True)
         else:
-            # Subsequent files: Append without the header row
+            # Subsequent files: Append without the header row (a)
             df.to_csv(output_csv_path, mode="a", index=False, header=False)
+
+        progress.print(
+            f"Appending CSV files to final CSV -> data/csv/{filename}",
+            current_progress=i + 1,
+            total_progress=total_files,
+            prefix_msg=f"{i + 1}/{total_files}",
+            last=(i + 1 == total_files),
+        )
+
+
+def concat_pq_to_pq(
+    files: list[str], filename: str, output_path: str | Path = config.DATA_EXPORT_PATH
+) -> str | None:
+    # selected_files: list[str], CITY_NAME: str) -> None:
+    """Concatenate multiple Parquet files into a single Parquet file."""
+
+    if len(files) == 0:
+        logger.trace("No files to concatenate.")
+        return None
+
+    start_time = time.perf_counter()
+
+    output_file_path = os.path.join(output_path, f"{filename}")
+
+    # READ files into PyArrow Tables
+    total_rows = 0
+    tables_to_concatenate = []
+    for file_path in files:
+        table = pq.read_table(file_path)
+        # print(f"Reading {file_path} into PyArrow Table: {table.num_rows} rows...")
+        # print(f"{table.num_rows} rows...")
+        total_rows += table.num_rows
+        tables_to_concatenate.append(table)
+
+    if len(tables_to_concatenate) == 0:
+        logger.trace("No table to concatenate.")
+        return None
+
+    # CONCAT all tables into a single table
+    concatenated_table = pa.concat_tables(tables_to_concatenate)
+
+    if concatenated_table.num_rows != total_rows:
+        raise ValueError("Row count mismatch after concatenation")
+    else:
+        # WRITE the concatenated table to a single Parquet file
+        pq.write_table(concatenated_table, output_file_path)
+
+        logger.trace(
+            f"Concatenated {len(tables_to_concatenate)} tables in {exec_time(start_time):.2f}s: {concatenated_table.num_rows} total rows"
+        )
+
+        return output_file_path
 
 
 def _safe_serialize(obj):

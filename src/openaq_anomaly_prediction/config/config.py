@@ -18,14 +18,19 @@ class Configuration:
     DATA_PATH = ROOT_PATH / "data"
     DATA_CSV_PATH = DATA_PATH / "csv"
     DATA_PARQUET_PATH = DATA_PATH / "parquet"
+    DATA_EXPORT_PATH = DATA_PATH / "export"
 
     os.makedirs(DATA_PATH, exist_ok=True)
     os.makedirs(DATA_CSV_PATH, exist_ok=True)
     os.makedirs(DATA_PARQUET_PATH, exist_ok=True)
+    os.makedirs(DATA_EXPORT_PATH, exist_ok=True)
 
     # Logs path
     LOGS_PATH = ROOT_PATH / "logs"
     os.makedirs(LOGS_PATH, exist_ok=True)
+
+    def __init__(self) -> None:
+        pass
 
     # TODO: Load the environment variables in the class
     @staticmethod
@@ -34,5 +39,74 @@ class Configuration:
         load_dotenv(dotenv_path=_ROOT_PATH / "secrets" / ".env")
         return os.environ.get(var_name, "default")
 
-    def __init__(self) -> None:
-        pass
+    # Doesn't work because a sensor can be bad only for a specific period
+    @staticmethod
+    def get_excluded_sensors() -> list[int]:
+        """Get the list of excluded sensor IDs."""
+        SENSOR_BANNED_LIST = []  # List of sensor IDs to exclude from download
+
+        # paris_2023_T4_2023-10-01_2023-12-31.json
+        SENSOR_BANNED_LIST += [9593, 4275130, 9680]
+
+        # paris_2025_T4_2025-10-01_2025-12-31.json
+        SENSOR_BANNED_LIST += [
+            5620,
+            5588,
+            9542,
+            9539,
+            9643,
+            9736,
+            9610,
+            9716,
+            9609,
+            9590,
+            9589,
+            9680,
+            9625,
+            4661655,
+            9614,
+            9637,
+            9863,
+            15298,
+            9647,
+            9646,
+            9652,
+            9671,
+            9672,
+            9693,
+            9729,
+            9747,
+            9778,
+            9777,
+            9779,
+            9782,
+            9850,
+            9851,
+            9860,
+            9861,
+            7773042,
+            7773850,
+            7773420,
+            7775825,
+            10124847,
+            10124849,
+            10124824,
+            10124825,
+        ]
+
+        # paris_2021_T4_2021-10-01_2021-12-31.json
+        SENSOR_BANNED_LIST += [
+            9577,
+            9609,
+            9863,
+            15298,
+            9647,
+            9646,
+            9864,
+            9652,
+            9655,
+            9662,
+            9663,
+        ]
+
+        return SENSOR_BANNED_LIST

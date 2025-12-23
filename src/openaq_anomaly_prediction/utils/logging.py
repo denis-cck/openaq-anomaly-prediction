@@ -97,7 +97,7 @@ class ProgressLogger:
     def time_gradient(text: str, current_time: float, max_time: float) -> str:
         """Return text colored with a gradient based on progress."""
 
-        c = hex("#666666")
+        # c = hex("#666666")
         progress_pct = current_time / max_time
 
         if progress_pct >= 1:
@@ -106,13 +106,13 @@ class ProgressLogger:
             gradient_index = int(progress_pct / ProgressLogger._TIME_GRADIENT_STEPS)
             color_code = ProgressLogger._TIME_GRADIENT[gradient_index]
 
-        return f"{b()}{hex(color_code)}{text}{rst()}{c}"
+        return f"{b()}{hex(color_code)}{text}{rst()}{grey()}"
 
     @staticmethod
     def text_gradient(text: str, current_progress: float, total_progress: float) -> str:
         """Return text colored with a gradient based on progress."""
 
-        c = hex("#666666")
+        # c = grey()
         progress_pct = current_progress / total_progress
 
         if progress_pct >= 1:
@@ -121,7 +121,7 @@ class ProgressLogger:
             gradient_index = int(progress_pct / ProgressLogger._GRADIENT_STEPS)
             color_code = ProgressLogger._GRADIENT[gradient_index]
 
-        return f"{hex(color_code)}{text}{rst()}{c}"
+        return f"{hex(color_code)}{text}{rst()}{grey()}"
 
     # ---------------------------------------------------------------------
     # PUBLIC METHODS
@@ -135,13 +135,13 @@ class ProgressLogger:
         # suffix_msg = kwargs.get("suffix_msg", None)
         last = kwargs.get("last", False)
 
-        c = hex("#666666")
+        c = grey()
 
         now = datetime.now().strftime("%H:%M:%S")
         prefix = "" if prefix_msg is None else prefix_msg  # default
         # suffix = "" if suffix_msg is None else suffix_msg  # default
 
-        progress_str = f"{c}{now:<9}{prefix:>8} |   󰘍 {rst()}"
+        progress_str = f"{grey()}{now:<9}{prefix:>8} |   󰘍 {rst()}"
 
         if total_progress > 0:
             progress_pct = current_progress / total_progress
@@ -152,10 +152,10 @@ class ProgressLogger:
                 gradient_index = int(progress_pct / ProgressLogger._GRADIENT_STEPS)
                 color_code = ProgressLogger._GRADIENT[gradient_index]
             progress_str += (
-                f"{b()}{hex(color_code)}{progress_pct:>4.0%}{rst()}{c}: {rst()}"
+                f"{b()}{hex(color_code)}{progress_pct:>4.0%}{rst()}{grey()}: {rst()}"
             )
 
-        progress_str += f"{c}{message}{rst()}"
+        progress_str += f"{grey()}{message}{rst()}"
 
         # Ensure the line is fully cleared even if the new message is shorter than the previous one
         padding = max(self._last_progress_len - len(progress_str), 0)
@@ -176,6 +176,11 @@ class ProgressLogger:
 def b() -> str:
     """Return a Bold ANSI code."""
     return "\x1b[1m"
+
+
+def grey() -> str:
+    """Return a default Grey ANSI code."""
+    return hex("#666666")
 
 
 def hex(color_code: str) -> str:
