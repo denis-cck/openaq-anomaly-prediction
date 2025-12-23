@@ -1,3 +1,6 @@
+PYTHON_VERSION := 3.12.11
+PYTHON_VIRTUALENV_NAME := "openaq-anomaly-prediction"
+
 .PHONY: setup
 # setup: check-uv ignore-pyenv uv-sync
 # setup-dev: reset check-uv ignore-pyenv uv-venv uv-sync-dev
@@ -9,7 +12,7 @@ setup-reset:
 # 	@echo "\n\033[1;3;34;40m 󱦳󱦳󱦳 PREFECT-START 󱦳󱦳󱦳 \033[0m"
 	@rm -rf .venv
 	@rm -f .python-version
-	@pyenv virtualenvs | grep -q $(PYENV_VIRTUALENV_NAME) && pyenv virtualenv-delete -f $(PYENV_VIRTUALENV_NAME) || true
+	@pyenv virtualenvs | grep -q $(PYTHON_VIRTUALENV_NAME) && pyenv virtualenv-delete -f $(PYTHON_VIRTUALENV_NAME) || true
 # 	@rm -f poetry.lock
 
 # NEED TO ADD A STEP TO INSTALL THE CORRECT PYTHON VERSION WITH PYENV IF NOT EXISTS
@@ -19,9 +22,10 @@ env-copy:
 	then cp .env_example secrets/.env; else echo "[Makefile:env-copy]: secrets/.env already exists"; fi
 
 pyenv-create:
-	@pyenv install -s $(PYENV_PYTHON_VERSION)
-	@pyenv virtualenv $(PYENV_PYTHON_VERSION) $(PYENV_VIRTUALENV_NAME) || true
-	@pyenv local $(PYENV_VIRTUALENV_NAME)
+	@pyenv install -s $(PYTHON_VERSION) || true
+	@pyenv install -s $(PYTHON_VERSION)
+	@pyenv virtualenv $(PYTHON_VERSION) $(PYTHON_VIRTUALENV_NAME) || true
+	@pyenv local $(PYTHON_VIRTUALENV_NAME)
 
 poetry-install:
 	@pip install --upgrade pip
@@ -36,8 +40,8 @@ poetry-install:
 # 	@echo "'uv' found."
 
 # create-pyenv:
-# 	@pyenv virtualenv $(PYENV_PYTHON_VERSION) $(PYENV_VIRTUALENV_NAME) || true
-# 	@pyenv local $(PYENV_VIRTUALENV_NAME)
+# 	@pyenv virtualenv $(PYTHON_VERSION) $(PYTHON_VIRTUALENV_NAME) || true
+# 	@pyenv local $(PYTHON_VIRTUALENV_NAME)
 
 # pip-install:
 # 	python -m pip install --upgrade pip
