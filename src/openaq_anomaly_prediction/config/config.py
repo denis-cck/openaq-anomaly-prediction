@@ -9,6 +9,13 @@ _ROOT_PATH = Path(__file__).parent.parent.parent.parent
 load_dotenv(dotenv_path=_ROOT_PATH / "secrets" / ".env")
 # print(f"Config loaded from {_ROOT_PATH / 'secrets' / '.env'}: {os.environ}")
 
+# TODO: Get rid of this abomination, use OAuth instead
+# Override GOOGLE_APPLICATION_CREDENTIALS to use the correct path in notebooks
+_SECRETS_PATH = _ROOT_PATH / "secrets"
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(
+    (_SECRETS_PATH / "openaq-anomaly-prediction-cf3c3c643a9f.json").absolute()
+)
+
 
 class Configuration:
     # Root path
@@ -29,7 +36,16 @@ class Configuration:
     LOGS_PATH = ROOT_PATH / "logs"
     os.makedirs(LOGS_PATH, exist_ok=True)
 
+    # BigQuery schemas
+    BG_SCHEMA_PATH = (
+        ROOT_PATH / "src" / "openaq_anomaly_prediction" / "load" / "schemas"
+    )
+
     def __init__(self) -> None:
+        print(f"BigQuery schemas path: {Configuration.BG_SCHEMA_PATH}")
+        print(
+            f"BigQuery GOOGLE_APPLICATION_CREDENTIALS: {Configuration.getenv('GOOGLE_APPLICATION_CREDENTIALS')}"
+        )
         pass
 
     # TODO: Load the environment variables in the class

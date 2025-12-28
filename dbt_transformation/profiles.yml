@@ -1,0 +1,28 @@
+# dbt_transformation/profiles.yml
+oap_profile:
+  target: dev
+  outputs:
+    dev:
+      type: bigquery
+      method: service-account
+      project: "{{ env_var('GOOGLE_PROJECT_ID') }}"  # =database
+      dataset: "{{ env_var('DBT_DEFAULT_DATASET', 'oap_dev') }}"  # =schema
+      keyfile: "{{ env_var('GOOGLE_APPLICATION_CREDENTIALS') }}"
+      location: EU
+      threads: 4
+      job_execution_timeout_seconds: 300
+      # job_retries: 1 # default
+      # priority: interactive  # default
+      # maximum_bytes_billed: 1000000000  # 1 GB
+
+    prod:
+      type: bigquery
+      method: oauth
+      project: "{{ env_var('GOOGLE_PROJECT_ID') }}"  # =database
+      dataset: "{{ env_var('DBT_DEFAULT_DATASET', 'oap_prod') }}"  # =schema
+      location: EU
+      threads: 4
+      job_execution_timeout_seconds: 300
+      # job_retries: 1 # default
+      # priority: interactive  # default
+      # maximum_bytes_billed: 1000000000  # 1 GB

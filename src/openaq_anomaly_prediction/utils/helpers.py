@@ -9,14 +9,14 @@ import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Literal, Tuple, Union, overload
 
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
 from openaq_anomaly_prediction.config import Configuration as config
-from openaq_anomaly_prediction.utils.logging import ProgressLogger, logger
+from openaq_anomaly_prediction.utils.logger import ProgressLogger, logger
 
 
 def get_iso_now() -> str:
@@ -24,7 +24,21 @@ def get_iso_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def exec_time(start_time: float, decimal: int | None = None) -> float:
+@overload
+def exec_time(
+    start_time: float, decimal: int | None = None, fmt: Literal[False] = False
+) -> float: ...
+
+
+@overload
+def exec_time(
+    start_time: float, decimal: int | None = None, fmt: Literal[True] = True
+) -> str: ...
+
+
+def exec_time(
+    start_time: float, decimal: int | None = None, fmt: bool = False
+) -> float | str:
     """Get a string representation of the current execution time."""
 
     duration = (
@@ -32,7 +46,27 @@ def exec_time(start_time: float, decimal: int | None = None) -> float:
         if decimal is None
         else round(time.perf_counter() - start_time, decimal)
     )
-    return duration
+
+    return format_duration(duration) if fmt else duration
+
+
+def format_duration(seconds: float) -> str:
+    """Format a duration in seconds into a human-readable string."""
+    if seconds < 60:
+        return f"{seconds}s"
+
+    hours, remainder = divmod(seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+
+    # return f"{int(hours):02d}:{int(minutes):02d}:{int(secs):02d}"
+
+    if hours > 0:
+        return f"{int(hours)}h{int(minutes):02d}m"
+
+    if minutes > 0:
+        return f"{int(minutes):02d}m{int(secs):02d}s"
+
+    return f"{secs:.2f}s"
 
 
 def get_monthly_periods(year: int) -> List[Tuple[str, str]]:
@@ -124,10 +158,31 @@ def get_trimestrial_periods(year: int) -> List[Tuple[str, str]]:
 #     # logger.success(f"Concatenated {len(all_files)} CSV files into {output_path}")
 
 
+def get_logs_filepaths(
+    relative_path: str = "", search_pattern: str = "*.json"
+) -> list[str]:
+    """Get all logs filepaths from the default logs directory."""
+    logs_path = config.LOGS_PATH
+    if relative_path != "":
+        logs_path = os.path.join(logs_path, relative_path)
+    all_files = glob.glob(os.path.join(logs_path, search_pattern))
+    return all_files
+
+
+def load_logs(filepaths: list[str]) -> list[dict]:
+    """Load the JSON logs from a list of  filepaths."""
+    all_files = []
+    for filepath in filepaths:
+        with open(filepath, "r") as f:
+            data = json.load(f)
+            all_files.append(data)
+    return all_files
+
+
 def get_parquet_filepaths(
     relative_path: str, search_pattern: str = "*.parquet"
 ) -> list[str]:
-    """Get all Parquet file paths from the default Parquet data directory."""
+    """Get all Parquet filepaths from the default Parquet data directory."""
     parquet_path = config.DATA_PARQUET_PATH
     if relative_path is not None:
         parquet_path = os.path.join(parquet_path, relative_path)
@@ -208,7 +263,6 @@ def concat_csv_to_csv(
 def concat_pq_to_pq(
     files: list[str], filename: str, output_path: str | Path = config.DATA_EXPORT_PATH
 ) -> str | None:
-    # selected_files: list[str], CITY_NAME: str) -> None:
     """Concatenate multiple Parquet files into a single Parquet file."""
 
     if len(files) == 0:
@@ -243,7 +297,7 @@ def concat_pq_to_pq(
         pq.write_table(concatenated_table, output_file_path)
 
         logger.trace(
-            f"Concatenated {len(tables_to_concatenate)} tables in {exec_time(start_time):.2f}s: {concatenated_table.num_rows} total rows"
+            f"Concatenated {len(tables_to_concatenate)} tables in {exec_time(start_time, fmt=True)}: {concatenated_table.num_rows} total rows"
         )
 
         return output_file_path

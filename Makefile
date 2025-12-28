@@ -19,7 +19,7 @@ setup-reset:
 
 env-copy:
 	@if [ ! -f secrets/.env ]; \
-	then cp .env_example secrets/.env; else echo "[Makefile:env-copy]: secrets/.env already exists"; fi
+	then cp examples/.env_example secrets/.env; else echo "[Makefile:env-copy]: secrets/.env already exists"; fi
 
 pyenv-create:
 	@pyenv install -s $(PYTHON_VERSION) || true

@@ -1,0 +1,34 @@
+
+# OpenAQ Anomaly Prediction DBT Project Configuration
+name: 'openaq_anomaly_prediction'
+version: '1.0.0'
+
+profile: 'oap_profile'  # profiles.yaml
+
+# Default paths
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:         # directories to be removed by `dbt clean`
+  - "target"
+  - "dbt_packages"
+
+# Configuring models
+# Full documentation: https://docs.getdbt.com/docs/configuring-models
+
+models:
+  openaq_anomaly_prediction:
+    # Config indicated by + and applies to all files under models/example/
+    staging:
+      +schema: staging
+      +materialized: view
+    intermediate:
+      +schema: intermediate
+      +materialized: view
+    serving:
+      +schema: serving
+      +materialized: view

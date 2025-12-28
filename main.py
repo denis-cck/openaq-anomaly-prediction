@@ -2,7 +2,7 @@ from pathlib import Path
 
 from openaq_anomaly_prediction.config import Configuration as config
 from openaq_anomaly_prediction.load.openaq import test
-from openaq_anomaly_prediction.utils.logging import ProgressLogger, logger
+from openaq_anomaly_prediction.utils.logger import ProgressLogger, logger
 
 print("PRINT")
 logger.trace("TRACE")

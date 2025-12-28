@@ -19,7 +19,7 @@ from pandas._typing import (
     # DateTimeErrorChoices,
 )
 
-from openaq_anomaly_prediction.config import Configuration as config
+from openaq_anomaly_prediction.config import Configuration as config  # noqa: F401
 from openaq_anomaly_prediction.utils.helpers import (
     exec_time,
     get_iso_now,
@@ -27,7 +27,7 @@ from openaq_anomaly_prediction.utils.helpers import (
     parquets_to_csv,
     save_logs,
 )
-from openaq_anomaly_prediction.utils.logging import (
+from openaq_anomaly_prediction.utils.logger import (
     ProgressLogger,
     b,
     grey,
@@ -37,7 +37,9 @@ from openaq_anomaly_prediction.utils.logging import (
 )
 
 
-class OpenMeteo_Client:
+class OpenMeteoClient:
+    """Open-Meteo API client wrapper."""
+
     FULL_PARAMETERS = [
         "temperature_2m",
         "relative_humidity_2m",
@@ -178,7 +180,7 @@ class OpenMeteo_Client:
     ) -> pd.DataFrame:
         """Download historical weather data from Open-Meteo API for a given location and date range."""
 
-        all_parameters_string = ",".join(OpenMeteo_Client.FULL_PARAMETERS)
+        all_parameters_string = ",".join(OpenMeteoClient.FULL_PARAMETERS)
 
         url = "https://archive-api.open-meteo.com/v1/archive"
         params = {
@@ -203,7 +205,7 @@ class OpenMeteo_Client:
         return df_weather
 
 
-client = OpenMeteo_Client()
+client = OpenMeteoClient()
 
 
 if __name__ == "__main__":

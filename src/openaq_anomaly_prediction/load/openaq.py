@@ -18,16 +18,22 @@ from pandas._typing import (
     # ArrayLike,
     # DateTimeErrorChoices,
 )
+from shapely import length
 
-from openaq_anomaly_prediction.config import Configuration as config
+from openaq_anomaly_prediction.config import Configuration as config  # noqa: F401
+from openaq_anomaly_prediction.load.gcp import bq, gcs
+from openaq_anomaly_prediction.load.schemas.locations import LocationsTable
+from openaq_anomaly_prediction.load.schemas.measurements import MeasurementsTable
+from openaq_anomaly_prediction.load.schemas.sensors import SensorsTable
 from openaq_anomaly_prediction.utils.helpers import (
     exec_time,
+    format_duration,
     get_iso_now,
     get_parquet_filepaths,
     parquets_to_csv,
     save_logs,
 )
-from openaq_anomaly_prediction.utils.logging import (
+from openaq_anomaly_prediction.utils.logger import (
     ProgressLogger,
     b,
     grey,
@@ -40,15 +46,10 @@ ArrayConvertible = Union[list, tuple, AnyArrayLike]
 Scalar = Union[float, str]
 DatetimeScalar = Union[Scalar, date, np.datetime64]
 
-# current_file_path = Path(__file__).resolve()
-# root_location = current_file_path.parent
 
-# # logger.info(f"current_file_path: {current_file_path}")
-# # logger.info(f"root_location: {root_location}")
-# # logger.info("Setup complete.")
+class OpenAQClient:
+    """OpenAQ API client wrapper."""
 
-
-class OpenAQ_Client:
     def __init__(self, **kwargs) -> None:
         # KEYWORDS ARGUMENTS
         self.verbose = kwargs.get("verbose", 0)
@@ -137,13 +138,19 @@ class OpenAQ_Client:
             data = response.json()
 
             data["meta"]["request_duration"] = exec_time(start_time)
+
+            # Flatten results into a DataFrame
             results = pd.json_normalize(data["results"])
 
-            # Convert columns with "datetime" in their names to datetime types
-            datetime_columns = [col for col in results.columns if "datetime" in col]
-            for col in datetime_columns:
-                results[col] = pd.to_datetime(results[col], utc=True)
-                # print(results[col].dtype)
+            # # Convert columns with "datetime" in their names to datetime types
+            # datetime_columns = [col for col in results.columns if "datetime" in col]
+            # for col in datetime_columns:
+            #     if "local" in col:
+            #         results[col] = pd.to_datetime(
+            #             results[col], utc=False
+            #         ).dt.tz_localize(None)  # remove timezone info (naive datetime)
+            #     else:
+            #         results[col] = pd.to_datetime(results[col], utc=True)
 
             return {"meta": data["meta"], "results": results}
 
@@ -162,9 +169,16 @@ class OpenAQ_Client:
             raise err
 
 
+# ============================================================================
+
+
 class AreaDownloader:
+    SAVE_TO_GCS = True
+    SAVE_TO_DISK = False
+
     def __init__(self, **kwargs) -> None:
-        self.area_name = kwargs.get("area_name", "unknown_area")
+        self.area_id = kwargs.get("area_id", "unknown_area_id")
+        self.area_name = kwargs.get("area_name", "unknown_area_name")
         self.verbose = kwargs.get("verbose", 0)
 
         self.locations: pd.DataFrame = None
@@ -177,6 +191,7 @@ class AreaDownloader:
     def standardized_measurements_sorting(measurements: pd.DataFrame) -> None:
         """Standardize the sorting of measurements DataFrame."""
 
+        # This is happening BEFORE any cleaning, so the columns still have dots
         sorting_columns = ["period.datetimeTo.local", "sensor_id"]
 
         if not all(col in measurements.columns for col in sorting_columns):
@@ -204,16 +219,27 @@ class AreaDownloader:
         #     ~~~~~~^^^^^^^^^^
         # TypeError: list indices must be integers or slices, not str
 
-        for period in all_period_logs:
+        for i, period in enumerate(all_period_logs):
+            if i == 0:
+                title = "DOWNLOADS SUMMARY"
+                from_run_id = f"From RUN_ID: {all_period_logs[0]['run_id']}"
+                to_run_id = f"To RUN_ID: {all_period_logs[-1]['run_id']}"
+                max_length = max(len(from_run_id), len(to_run_id), len(title)) + 3
+
+                print()
+                logger.info(f"{'=' * max_length}")
+                logger.info(title)
+                logger.trace(from_run_id)
+                logger.trace(to_run_id)
+                print()
+
             if period["status"] == "completed":
-                logger.success(
-                    f"[COMPLETED] Run completed successfully in {period['total_duration']:.2f}s"
-                )
+                success_msg = f"[COMPLETED] Run completed in {format_duration(period['total_duration'])}"
+                logger.success(success_msg)
 
             elif period["status"] == "aborted":
-                logger.error(
-                    f"[ABORTED] Run cancelled after {period['total_duration']:.2f}s"
-                )
+                aborted_msg = f"[ABORTED] Run cancelled after {format_duration(period['total_duration'])}"
+                logger.error(aborted_msg)
 
             logger.trace(f"RUN_ID: {period['run_id']}")
             logger.trace(
@@ -222,26 +248,33 @@ class AreaDownloader:
             logger.trace(
                 f"Fetched data from {len(period['sensors'])} sensors ({period['errors']} errors and {period['retries']} retries)"
             )
-            logger.trace(
-                f"Saved {period['saved']} parquet files in {period['saving_duration']:.2f}s"
-            )
+
+            if AreaDownloader.SAVE_TO_GCS:
+                logger.trace(
+                    f"Saved all files in staging bucket in {period['gcs_saving_duration']:.2f}s"
+                )
+
+            if AreaDownloader.SAVE_TO_DISK:
+                logger.trace(
+                    f"Saved {period['saved']} parquet files in {period['disk_saving_duration']:.2f}s"
+                )
 
             if show_errors:
                 for run in period["logs"]:
                     if len(run["errors"]) > 0:
                         logger.warning(
-                            f"> {run['status'].upper()} ({run['retries']}): {len(run['errors'])} error{'s' if len(run['errors']) != 1 else ''} in RUN_ID [{run['run_id']}]"
+                            f"> {run['status'].upper()} ({run['retries'] + 1}): {len(run['errors'])} error{'s' if len(run['errors']) != 1 else ''} in RUN_ID [{run['run_id']}]"
                         )
                         for error in run["errors"]:
                             logger.trace(
                                 f"    [{error['type']}] sensor_id={error['sensor_id']}"
                             )
 
-            if period["status"] == "aborted":
-                logger.error("=> [ABORTED]")
+            # if period["status"] == "aborted":
+            #     logger.error("=> [ABORTED]")
 
-            elif period["status"] == "completed":
-                logger.success("=> [COMPLETED]")
+            # elif period["status"] == "completed":
+            #     logger.success("=> [COMPLETED]")
 
             print()
 
@@ -261,15 +294,17 @@ class AreaDownloader:
         )
         results = res["results"]
 
+        # print(results.head())
+
         # Get a full list of locations for the area
-        self.locations = res["results"]
+        self.locations = LocationsTable().save_dataframe(res["results"], skip_bq=False)
 
         # Get a full list of sensors for the area (flatten "parameters")
         def _flatten_sensors(row):
             flattened = [
                 {
-                    "location_id": row.get("id"),
                     "id": sensor.get("id"),
+                    "location_id": row.get("id"),
                     "name": sensor.get("name"),
                     "parameter.id": sensor.get("parameter", {}).get("id"),
                     "parameter.name": sensor.get("parameter", {}).get("name"),
@@ -283,8 +318,9 @@ class AreaDownloader:
             return flattened
 
         results["sensors_flat"] = results.apply(_flatten_sensors, axis=1)
-        df_sensors_exploded = results["sensors_flat"].explode()
-        self.sensors = pd.DataFrame(df_sensors_exploded.tolist())
+        df_sensors_exploded = pd.DataFrame(results["sensors_flat"].explode().tolist())
+
+        self.sensors = SensorsTable().save_dataframe(df_sensors_exploded, skip_bq=False)
 
         # Get a full list of instruments for the area
         # df_instruments_exploded = results["instruments"].explode()
@@ -293,7 +329,7 @@ class AreaDownloader:
     def get_sensors_with_dates(
         self, from_date: DatetimeScalar = "", to_date: DatetimeScalar = "", **kwargs
     ) -> pd.DataFrame:
-        """Get sensors with their location's datetimeFirst.utc and datetimeLast.utc with an optional date filter."""
+        """Get sensors with their location's datetimeFirst_utc and datetimeLast_utc with an optional date filter."""
 
         verbose = kwargs.get("verbose", self.verbose)
 
@@ -304,7 +340,7 @@ class AreaDownloader:
 
         # Filter locations before the JOIN to reduce the data size
         filtered_locations = self.locations[
-            ["id", "datetimeFirst.utc", "datetimeLast.utc"]
+            ["id", "datetimeFirst_utc", "datetimeLast_utc"]
         ]
         mask_filter = pd.Series(True, index=filtered_locations.index)
 
@@ -313,19 +349,19 @@ class AreaDownloader:
 
         if from_date != "":
             mask_filter = mask_filter & (
-                filtered_locations["datetimeLast.utc"]
+                filtered_locations["datetimeLast_utc"]
                 >= pd.to_datetime(from_date, utc=True)
             )
         if to_date != "":
             mask_filter = mask_filter & (
-                filtered_locations["datetimeFirst.utc"]
+                filtered_locations["datetimeFirst_utc"]
                 <= pd.to_datetime(to_date, utc=True)
             )
 
         if verbose >= 5:
             logger.trace(f"Locations found after filters: {mask_filter.sum()}")
 
-        # Join sensors with filtered locations: only add "datetimeFirst.utc" and "datetimeLast.utc" columns
+        # Join sensors with filtered locations: only add "datetimeFirst_utc" and "datetimeLast_utc" columns
         sensors_with_dates = self.sensors[
             self.sensors["location_id"].isin(filtered_locations[mask_filter]["id"])
         ].join(
@@ -350,6 +386,7 @@ class AreaDownloader:
         # Exemple: {'name': 'openaq-api', 'website': '/', 'page': 1, 'limit': 1000, 'found': 0}
         verbose = kwargs.get("verbose", self.verbose)
         inline_progress = kwargs.get("inline_progress", False)
+        run_id = kwargs.get("run_id", "run")
         prefix_msg = kwargs.get("prefix_msg", None)
         suffix_msg = kwargs.get("suffix_msg", None)
         max_sensor_length = kwargs.get("max_sensor_length", 0)
@@ -434,12 +471,12 @@ class AreaDownloader:
                         )
                     elif verbose >= 1:
                         logger.success(
-                            f"Retrieved 0 measurement in {exec_time(start_time):.2f}s (sensor_id={sensor_id})"
+                            f"Retrieved 0 measurement in {exec_time(start_time, fmt=True)} (sensor_id={sensor_id})"
                         )
                     break
 
             # 4. Save results (append to all_measurements)
-            res["results"]["ingested_at"] = get_iso_now()  # add [ingested_at]
+            # res["results"]["ingested_at"] = get_iso_now()  # add [ingested_at] DONE IN MEASUREMENTS SCHEMA
 
             reordered_columns = ["sensor_id"] + res["results"].columns.tolist()
             res["results"]["sensor_id"] = sensor_id  # add [sensor_id]
@@ -464,6 +501,8 @@ class AreaDownloader:
                 if len(all_results) == found_value:  # last step
                     message = f"{progress_update:<26} {suffix_msg}{inline_sensor_str:<{max_sensor_length}} | {req_message}: -> {client.get_ratelimit_string()}"
                     last = True
+                    # DISABLE FOR GCS STREAMING
+                    last = False
                 else:
                     message = f"{progress_update:<26} {suffix_msg}{inline_sensor_str:<{max_sensor_length}} | {req_message}: -> {client.get_ratelimit_string()}"
                     last = False
@@ -486,7 +525,7 @@ class AreaDownloader:
                         "0" if found_value == 0 else f"{len(all_results)}/{found_value}"
                     )
                     logger.success(
-                        f"Retrieved {measurements_msg} measurements in {exec_time(start_time):.2f}s (sensor_id={sensor_id})"
+                        f"Retrieved {measurements_msg} measurements in {exec_time(start_time, fmt=True)} (sensor_id={sensor_id})"
                     )
                 break
 
@@ -495,10 +534,46 @@ class AreaDownloader:
         if len(all_results) > 0:
             all_measurements = pd.DataFrame(all_results)
             AreaDownloader.standardized_measurements_sorting(all_measurements)
-        # else:
-        #     all_measurements = pd.DataFrame()
 
-        # print(all_measurements.head())
+            parquet_filename = f"{run_id}_sensor_{sensor_id}.raw.parquet"
+            final_message = message
+
+            # Stream dataframe to GCS (staging bucket)
+            if AreaDownloader.SAVE_TO_GCS:
+                gcs_time = time.perf_counter()
+
+                MeasurementsTable().save_dataframe_to_gcs(
+                    all_measurements,
+                    "staging",
+                    f"openaq/measurements/{parquet_filename}",
+                )
+                # gcs.stream_dataframe_to_gcs(
+                #     all_measurements, "staging", f"openaq/{parquet_filename}"
+                # )
+
+                final_message += (
+                    f" | {exec_time(gcs_time, fmt=True)} -> streamed to GCS"
+                )
+
+            # Save to Parquet files
+            if AreaDownloader.SAVE_TO_DISK:
+                output_path = os.path.join(config.DATA_PARQUET_PATH, run_id)
+                parquet_file = os.path.join(output_path, parquet_filename)
+                all_measurements.to_parquet(
+                    parquet_file,
+                    index=False,
+                    compression="snappy",
+                )
+
+                final_message += " | saved to disk"
+
+            progress.print(
+                final_message,
+                current_progress=1,
+                total_progress=1,
+                prefix_msg=prefix_msg,
+                last=True,
+            )
 
         return all_measurements
 
@@ -531,8 +606,9 @@ class AreaDownloader:
         start_time = time.perf_counter()
 
         # 1. Create output directories for the run (1 per sensor)
-        output_path = os.path.join(config.DATA_PARQUET_PATH, run_id)
-        os.makedirs(output_path, exist_ok=True)
+        if AreaDownloader.SAVE_TO_DISK:
+            output_path = os.path.join(config.DATA_PARQUET_PATH, run_id)
+            os.makedirs(output_path, exist_ok=True)
 
         saved = []
         errors = []
@@ -540,14 +616,17 @@ class AreaDownloader:
         max_sensor_length = len(str(max(sensors_id)))
         for i, sensor_id in enumerate(sensors_id):
             try:
-                progress_msg = f"{i + 1}/{total}"
+                max_progress_length = len(str(total))
+                progress_msg = f"{i + 1:>{max_progress_length}}/{total}"
                 # 1. Fetch measurements for the sensor
                 df_measurements = self.fetch_sensor_measurements(
                     sensor_id,
                     datetime_from=datetime_from,
                     datetime_to=datetime_to,
+                    run_id=run_id,
                     prefix_msg=progress_msg if prefix_msg is None else prefix_msg,
-                    suffix_msg=progress_msg if suffix_msg is None else suffix_msg,
+                    suffix_msg="" if suffix_msg is None else suffix_msg,
+                    # suffix_msg=progress_msg if suffix_msg is None else suffix_msg,
                     # suffix_msg=f"{progress_msg:>{len(str(total)) * 2 + 1}}"
                     # if suffix_msg is None
                     # else suffix_msg,
@@ -557,16 +636,8 @@ class AreaDownloader:
                 )
 
                 if len(df_measurements) > 0:
-                    # Save to Parquet files
-                    parquet_file = os.path.join(
-                        output_path, f"{run_id}_sensor_{sensor_id}.raw.parquet"
-                    )
-                    df_measurements.to_parquet(
-                        parquet_file,
-                        index=False,
-                        compression="snappy",
-                    )
-                    saved.append(parquet_file)
+                    parquet_filename = f"{run_id}_sensor_{sensor_id}.raw.parquet"
+                    saved.append(parquet_filename)
 
             except requests.exceptions.HTTPError as err:
                 print()
@@ -597,7 +668,7 @@ class AreaDownloader:
                 )
         if verbose >= 4:
             logger.debug(
-                f"[END] Downloaded data for {total - len(errors)}/{total} sensors in {exec_time(start_time):.2f}s"
+                f"[OPENAQ] Downloaded data for {total - len(errors)}/{total} sensors in {exec_time(start_time, fmt=True)}"
             )
 
         if len(errors) > 0:
@@ -718,7 +789,7 @@ class AreaDownloader:
                 if run["status"] == "retrying":
                     total_retries += 1
 
-            # logger.info(f"[DOWNLOADED] Completed all downloads in {exec_time(start_time):.2f}s")
+            # logger.info(f"[DOWNLOADED] Completed all downloads in {exec_time(start_time, fmt=True)}")
             # print()
 
             run_status = (
@@ -766,25 +837,30 @@ class AreaDownloader:
 
         # Customize logs
         # year = kwargs.get("year", 2023)
-        run_id_prefix = kwargs.get("run_id_prefix", f"{self.area_name}_measurements")
+        run_id_prefix = kwargs.get("run_id_prefix", f"{self.area_id}_measurements")
         run_label = kwargs.get("run_label", None)
 
         start_time = time.perf_counter()
 
         logger.info(
-            f"[{self.area_name.upper()}][{run_label}] Fetching all measurements..."
+            f"[{self.area_id.upper()}][{run_label}] Fetching all measurements..."
         )
 
-        # FILTER the sensors with valid locations (with valid datetimeFirst.utc and datetimeLast.utc)
+        # FILTER the sensors with valid locations (with valid datetimeFirst_utc and datetimeLast_utc)
         if sensors_id is None:
             filtered_sensors = self.get_sensors_with_dates(
                 from_date=datetime_from,
                 to_date=datetime_to,
             )
-            # filtered_sensors = new_delhi.get_sensors_with_dates()  # full sensors, no filtering
             sensors_id = (
                 filtered_sensors["id"].unique().tolist()
             )  # get unique sensor IDs
+
+            # # TEMP: limit to first 5 sensors for testing
+            # print()
+            # logger.warning("TESTING: limiting to first 3 sensors only")
+            # print()
+            # sensors_id = sensors_id[:3]
 
         if len(sensors_id) == 0:
             logger.warning(
@@ -793,7 +869,7 @@ class AreaDownloader:
             print()
             return []
 
-        # CREATE Run_ID from area_name, date range
+        # CREATE Run_ID from area_id, date range
         if run_id is None:  # or force a run_id (customization or overwriting)
             datetime_from_str = dt.fromisoformat(datetime_from).strftime("%Y-%m-%d")
             datetime_to_str = dt.fromisoformat(datetime_to).strftime("%Y-%m-%d")
@@ -817,40 +893,62 @@ class AreaDownloader:
             pass
 
         # --------------------------------------------------------------------------------------------
-        # SAVE TRIMESTER: Generate the trimester CSV from all downloaded Parquet files for the run_id.
+        # SAVE PERIOD DATA:
 
         # elif period_logs["status"] == "downloaded":
-        save_start_time = time.perf_counter()
 
-        # Retrieve all Parquet files for the run manually
-        parquet_files = get_parquet_filepaths(run_id)
-        logger.trace(
-            f"Found {len(parquet_files)} parquet files in data/parquet/{run_id}/*.raw.parquet"
-        )
+        if AreaDownloader.SAVE_TO_GCS:
+            save_start_time = time.perf_counter()
 
-        # Save the trimester CSV file
-        parquets_to_csv(parquet_files, f"{run_id}.raw.csv", config.DATA_CSV_PATH)
+            logger.trace(
+                f"GCS/BIGQUERY: saving all files in staging bucket for RUN_ID [{run_id}]..."
+            )
 
-        period_logs["saving_duration"] = exec_time(save_start_time, 2)
-        logger.debug(
-            f"[SAVED] Created data/csv/{run_id}.raw.csv from {len(parquet_files)} parquet files in {exec_time(save_start_time):.2f}s"
-        )
+            # Trigger the load to Big Query from GCS Parquet files
+            MeasurementsTable().save_from_staging_bucket()
+
+            period_logs["gcs_saving_duration"] = exec_time(save_start_time, 2)
+            logger.debug(
+                f"[GCS/BIGQUERY] Upserted all measurements from GCS to BigQuery in {exec_time(save_start_time, fmt=True)}"
+            )
+
+        # Generate the period file from all downloaded Parquet files for the run_id.
+        if AreaDownloader.SAVE_TO_DISK:
+            save_start_time = time.perf_counter()
+
+            logger.trace(
+                f"DISK: creating a consolidated file on disk for RUN_ID [{run_id}]..."
+            )
+
+            # Retrieve all Parquet files for the run manually
+            parquet_files = get_parquet_filepaths(run_id)
+            logger.trace(
+                f"Found {len(parquet_files)} parquet files in data/parquet/{run_id}/*.raw.parquet"
+            )
+
+            # Save the period CSV file
+            # TODO: should switch to parquet files with DuckDB but now we'll be using GCS for 99.9% of the time so whatever
+            parquets_to_csv(parquet_files, f"{run_id}.raw.csv", config.DATA_CSV_PATH)
+
+            period_logs["disk_saving_duration"] = exec_time(save_start_time, 2)
+            logger.debug(
+                f"[DISK] Created data/csv/{run_id}.raw.csv from {len(parquet_files)} parquet files in {exec_time(save_start_time, fmt=True)}"
+            )
 
         # --------------------------------------------------------------------------------------------
-        # SAVE LOGS: Save trimester logs in log files
+        # SAVE LOGS: Save period logs in log files
 
         # Cleanup and finalize logs
         if period_logs["status"] == "aborted":
-            logger.warning(
-                f"[PARTIAL] Retrieved measurements with errors for [{self.area_name.upper()}][{run_label}] in {exec_time(start_time):.2f}s"
-            )
-            print()
+            aborted_msg = f"[PARTIAL] Retrieved measurements with errors for [{self.area_id.upper()}][{run_label}] in {exec_time(start_time, fmt=True)}"
+            logger.warning(aborted_msg)
+            # print()
         else:
             period_logs["status"] = "completed"
-            logger.success(
-                f"[FINISHED] Retrieved all measurements for [{self.area_name.upper()}][{run_label}] in {exec_time(start_time):.2f}s"
-            )
-            print()
+            success_msg = f"[FINISHED] Retrieved all measurements for [{self.area_id.upper()}][{run_label}] in {exec_time(start_time, fmt=True)}"
+            logger.success(success_msg)
+
+        print()
 
         period_logs["total_duration"] = exec_time(start_time, 2)
         period_logs["run_end"] = get_iso_now()
@@ -917,8 +1015,8 @@ class AreaDownloader:
                 # KEEP BUT DON'T NEED FOR MEASUREMENTS
                 # "datetimeFirst.local",
                 # "datetimeLast.local",
-                "datetimeFirst.utc",
-                "datetimeLast.utc",
+                "datetimeFirst_utc",
+                "datetimeLast_utc",
                 # CUSTOM FIELDS
                 # "sensors_flat",  # custom field added in AreaDownloader
                 # "instruments_flat",  # TODO: custom field added in AreaDownloader.
@@ -941,8 +1039,8 @@ class AreaDownloader:
             columns={
                 "id": "location_id",
                 "name": "location_name",
-                "datetimeFirst.utc": "location.datetimeFirst.utc",
-                "datetimeLast.utc": "location.datetimeLast.utc",
+                "datetimeFirst_utc": "location.datetimeFirst_utc",
+                "datetimeLast_utc": "location.datetimeLast_utc",
             }
         )
 
@@ -974,8 +1072,8 @@ class AreaDownloader:
             "period.datetimeTo.local",
             "period.datetimeFrom.utc",
             "period.datetimeTo.utc",
-            "location.datetimeFirst.utc",
-            "location.datetimeLast.utc",
+            "location.datetimeFirst_utc",
+            "location.datetimeLast_utc",
             "coordinates.latitude",
             "coordinates.longitude",
             "location_name",
@@ -1003,4 +1101,13 @@ class AreaDownloader:
         return df_final
 
 
-client = OpenAQ_Client()
+# ============================================================================
+
+
+client = OpenAQClient()
+
+if __name__ == "__main__":
+    logger.info(
+        f"This module is intended to be imported, not run directly: {__file__}\n"
+    )
+    pass
