@@ -53,7 +53,7 @@ def exec_time(
 def format_duration(seconds: float) -> str:
     """Format a duration in seconds into a human-readable string."""
     if seconds < 60:
-        return f"{seconds}s"
+        return f"{seconds:.2f}s"
 
     hours, remainder = divmod(seconds, 3600)
     minutes, secs = divmod(remainder, 60)
@@ -66,7 +66,7 @@ def format_duration(seconds: float) -> str:
     if minutes > 0:
         return f"{int(minutes):02d}m{int(secs):02d}s"
 
-    return f"{secs:.2f}s"
+    return f"{seconds:.2f}s"  # should never reach here
 
 
 def get_monthly_periods(year: int) -> List[Tuple[str, str]]:

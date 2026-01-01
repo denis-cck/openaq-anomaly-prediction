@@ -24,15 +24,15 @@ dependencies = [
     "plotly (>=6.5.0,<7.0.0)",
     "nbformat (>=5.10.4,<6.0.0)",
     "ipywidgets (>=8.1.8,<9.0.0)",
-    "google-cloud-bigquery (>=3.39.0,<4.0.0)",
     "dbt-core (>=1.11.2,<2.0.0)",
     "dbt-bigquery (>=1.11.0,<2.0.0)",
+    "google-cloud-bigquery[pandas,storage] (>=3.39.0,<4.0.0)",
+    "google-cloud-bigquery-storage (>=2.36.0,<3.0.0)",
 ]
 
 [dependency-groups]
 dev = [
     "ruff (>=0.14.8,<0.15.0)",
-    "ipykernel (>=7.1.0,<8.0.0)"
 ]
 
 

@@ -1,9 +1,8 @@
-
 # OpenAQ Anomaly Prediction DBT Project Configuration
 name: 'openaq_anomaly_prediction'
 version: '1.0.0'
 
-profile: 'oap_profile'  # profiles.yaml
+profile: 'oap_profile'  # in profiles.yaml
 
 # Default paths
 model-paths: ["models"]
@@ -22,13 +21,12 @@ clean-targets:         # directories to be removed by `dbt clean`
 
 models:
   openaq_anomaly_prediction:
-    # Config indicated by + and applies to all files under models/example/
     staging:
       +schema: staging
       +materialized: view
     intermediate:
       +schema: intermediate
       +materialized: view
-    serving:
-      +schema: serving
-      +materialized: view
+    # serving:
+    #   +schema: serving
+    #   +materialized: view

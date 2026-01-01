@@ -1,15 +1,18 @@
 import io
+import os
 import time
+from typing import Any, Literal, Union, overload
 
 import pandas as pd
+import pyarrow.parquet as pq
 from google.cloud import bigquery, storage
 from google.cloud.bigquery.table import PrimaryKey, TableConstraints
-from google.cloud.exceptions import NotFound
+from google.cloud.exceptions import BadRequest, GoogleCloudError, NotFound
 
 from openaq_anomaly_prediction.config import Configuration as cfg  # noqa: F401
 from openaq_anomaly_prediction.load.schemas.base_table import BaseTable
-from openaq_anomaly_prediction.utils.helpers import exec_time
-from openaq_anomaly_prediction.utils.logger import logger
+from openaq_anomaly_prediction.utils.helpers import exec_time, format_duration
+from openaq_anomaly_prediction.utils.logger import ProgressLogger, logger
 
 GCS_BUCKETS = [
     {
@@ -115,7 +118,83 @@ class BigQueryClient:
     """BigQuery client wrapper."""
 
     def __init__(self):
-        self.client = bigquery.Client()
+        self.client = bigquery.Client(location="EU")
+
+    @overload
+    def query(self, query: str, **kwargs: Any) -> Any: ...
+
+    @overload
+    def query(
+        self, query: str, *, dry_run: Literal[False] = False, **kwargs: Any
+    ) -> pd.DataFrame: ...
+
+    @overload
+    def query(self, query: str, *, dry_run: Literal[True], **kwargs: Any) -> None: ...
+
+    def query(self, query: str, **kwargs) -> Union[pd.DataFrame, None]:
+        dry_run = kwargs.get("dry_run", False)
+        query_cache = kwargs.get("query_cache", True)
+        query_parameters = kwargs.get("query_parameters", None)
+
+        query_parameters_fmt = []
+        if query_parameters is not None:
+            for param in query_parameters:
+                if isinstance(param[2], list):
+                    query_parameters_fmt.append(
+                        bigquery.ArrayQueryParameter(param[0], param[1], param[2])
+                    )
+                else:
+                    query_parameters_fmt.append(
+                        bigquery.ScalarQueryParameter(param[0], param[1], param[2])
+                    )
+
+        try:
+            job_config = bigquery.QueryJobConfig(
+                dry_run=dry_run,
+                use_query_cache=query_cache,
+                query_parameters=query_parameters_fmt,
+            )
+            query_job = self.client.query(query, job_config=job_config)
+
+            if dry_run:
+                print(
+                    f"This query will process {query_job.total_bytes_processed / 10**6:.2f} MB."
+                )
+                return None
+
+            return query_job.result().to_dataframe(create_bqstorage_client=True)
+
+        except GoogleCloudError as e:
+            error = "BigQuery Error: "
+            # Table or Dataset not found (404)
+            status_code = getattr(e, "code", "Unknown")
+            if status_code == 404:
+                error += f"Not Found ({status_code})"
+            if status_code == 400:
+                error += f"Bad Request ({status_code})"
+
+            logger.error(error)
+            print({e.message})
+
+            return None  # Or raise a custom, cleaner error
+
+        except Exception as e:
+            raise e
+
+        # EXAMPLE QUERIES:
+
+        # IN CLAUSE (UNNEST)
+        # query = """
+        #     SELECT
+        #         *
+        #     FROM `openaq-anomaly-prediction.dev_intermediate.int_seoul__measurements_segments`
+        #     WHERE location_id IN UNNEST(@test_locations_ids)
+        #     ORDER BY location_id, sensor_name, datetimeto_utc ASC
+        # """
+        # query_parameters = [
+        #     ("test_locations_ids", "STRING", ["12", "34", "56"]),
+        # ]
+        # df = bq.query(query, query_parameters=query_parameters, dry_run=False)
 
     def create_dataset_if_not_exists(self, dataset_id: str, **kwargs) -> None:
         """Create a BigQuery dataset if it does not exist."""
@@ -435,6 +514,61 @@ class BigQueryClient:
                 logger.success(
                     f"[GCS LOADING] Saved all files from {prefix_uri} into [{target_table_id}] in {exec_time(start_time, fmt=True)}.\n"
                 )
+
+    def export_table_to_disk(
+        self, query: str, filename: str, dry_run: bool = True, **kwargs
+    ) -> None:
+        """Export a BigQuery query to a local parquet file."""
+
+        start_time = time.perf_counter()
+
+        query_job = bq.client.query(
+            query,
+            job_config=bigquery.QueryJobConfig(dry_run=dry_run, use_query_cache=True),
+        )
+        query_time = exec_time(start_time)
+
+        if dry_run:
+            print(
+                f"This query will process {query_job.total_bytes_processed / 10**6:.2f} MB. If you want to execute it, set dry_run=False."
+            )
+
+        else:
+            logger.info(f"Executed the query in {format_duration(query_time)}")
+            # This is slow AF, but it works, so we'll go with it for now
+            # We should really use GCS for this though
+            result_iterator = query_job.result()
+            iterable = result_iterator.to_arrow_iterable()
+
+            export_path = os.path.join(cfg.DATA_EXPORT_PATH, filename)
+            logger.debug(f"Exporting the BigQuery table to [{filename}]...")
+
+            writer = None
+            current_rows = 0
+            total_rows = result_iterator.total_rows
+            progress = ProgressLogger()
+            for batch in iterable:
+                if writer is None:
+                    # Initialize the writer with the schema from the first batch
+                    writer = pq.ParquetWriter(export_path, batch.schema)
+
+                writer.write_batch(batch)
+                current_rows += batch.num_rows
+
+                progress.print(
+                    "Streaming the table to a local file...",
+                    current_progress=current_rows,
+                    total_progress=total_rows,
+                    prefix_msg="PROGRESS",
+                    last=(current_rows >= total_rows),
+                )
+
+            logger.success(
+                f"Exported the BigQuery table to a local file in {exec_time(start_time, fmt=True)}"
+            )
+
+            if writer:
+                writer.close()
 
 
 # ============================================================================

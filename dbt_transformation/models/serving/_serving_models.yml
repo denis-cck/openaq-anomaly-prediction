@@ -1,0 +1,15 @@
+# version: 2
+
+# models:
+#   - name: train_air_quality_v1
+#     description: "Final flat table for ML training"
+#     data_tests:
+#       # 1. The 'Safety Net' - No duplicates allowed for training
+#       - dbt_utils.unique_combination_of_columns:
+#           combination_of_columns: [sensor_id, measured_at_utc]
+      
+#       # 2. The 'Feature Check' - ML models hate null features
+#       - dbt_utils.at_least_one:
+#           column_name: temperature # From OpenMeteo
+#       - dbt_utils.at_least_one:
+#           column_name: pm25_value # From OpenAQ

@@ -1,4 +1,5 @@
 import os
+import pickle
 import random
 import time
 from datetime import date
@@ -20,6 +21,9 @@ from pandas._typing import (
 )
 
 from openaq_anomaly_prediction.config import Configuration as config  # noqa: F401
+from openaq_anomaly_prediction.load.schemas.openmeteo_historical import (
+    OpenMeteoHistoricalTable,
+)
 from openaq_anomaly_prediction.utils.helpers import (
     exec_time,
     get_iso_now,
@@ -39,6 +43,9 @@ from openaq_anomaly_prediction.utils.logger import (
 
 class OpenMeteoClient:
     """Open-Meteo API client wrapper."""
+
+    SAVE_TO_GCS = True
+    SAVE_TO_DISK = True
 
     FULL_PARAMETERS = [
         "temperature_2m",
@@ -111,9 +118,10 @@ class OpenMeteoClient:
             if err.response.status_code == 429 or "429 Client Error" in str(err):
                 print()
                 logger.warning(
-                    f"{hex('#dfa934')}[{err.response.status_code}] RATE LIMIT{rst()}{grey()}: Hit rate limit. Waiting for 90s...{rst()}"
+                    f"{hex('#dfa934')}[{err.response.status_code}] RATE LIMIT{rst()}{grey()}: Hit rate limit (hourly or daily)...{rst()}"
                 )
-                time.sleep(90)  # Wait for 90 seconds before retrying
+                raise err
+                # time.sleep(90)  # Wait for 90 seconds before retrying
 
             # print(f"HTTP error occurred: {err}")
             # print(response.text)  # Print the error message from API
@@ -125,16 +133,19 @@ class OpenMeteoClient:
     def construct_weather_dataframe(self, location_id: int, data: dict) -> pd.DataFrame:
         """Create a standard DataFrame from Open-Meteo API response data."""
 
+        # If daily data is needed
+        # df_weather_daily = pd.DataFrame(data["daily"])
+
         df_weather = pd.DataFrame(data["hourly"])
-        df_weather = df_weather.rename(columns={"time": "datetimeWeather.local"})
+        df_weather = df_weather.rename(columns={"time": "datetimeto_local"})
         df_weather_columns = df_weather.columns.tolist()[1:]  # exclude time column
 
-        df_weather["datetimeWeather.local"] = pd.to_datetime(
-            df_weather["datetimeWeather.local"]
+        df_weather["datetimeto_local"] = pd.to_datetime(
+            df_weather["datetimeto_local"]
         ).dt.tz_localize(str(data["timezone"]))
-        df_weather["datetimeWeather.utc"] = df_weather[
-            "datetimeWeather.local"
-        ].dt.tz_convert("UTC")
+        df_weather["datetimeto_utc"] = df_weather["datetimeto_local"].dt.tz_convert(
+            "UTC"
+        )
         df_weather["location_id"] = location_id
 
         df_weather["elevation"] = data["elevation"]
@@ -143,10 +154,10 @@ class OpenMeteoClient:
         df_weather["timezone"] = data["timezone"]
 
         df_weather = df_weather[
-            ["datetimeWeather.local", "datetimeWeather.utc", "location_id"]
+            ["location_id", "datetimeto_utc", "datetimeto_local"]
             + ["weather_latitude", "weather_longitude", "timezone", "elevation"]
             + df_weather_columns
-        ].sort_values(by=["datetimeWeather.local"])
+        ].sort_values(by=["datetimeto_local"])
 
         return df_weather
 
@@ -180,6 +191,19 @@ class OpenMeteoClient:
     ) -> pd.DataFrame:
         """Download historical weather data from Open-Meteo API for a given location and date range."""
 
+        # # ---------------------------------------------------------------------
+        # # TEMP CACHE
+        # pickle_filepath = os.path.join(
+        #     config.DATA_EXPORT_PATH, f"openmeteo_{run_id}.pkl"
+        # )
+        # if os.path.isfile(pickle_filepath):
+        #     print(f"{'=' * 20}\nFile exists!\n")
+
+        #     # Create if it doesn't exist
+        #     with open(pickle_filepath, "rb") as f:
+        #         data = pickle.load(f)
+        # # ---------------------------------------------------------------------
+
         all_parameters_string = ",".join(OpenMeteoClient.FULL_PARAMETERS)
 
         url = "https://archive-api.open-meteo.com/v1/archive"
@@ -192,17 +216,37 @@ class OpenMeteoClient:
             "hourly": all_parameters_string,
             # "hourly": "temperature_2m,relative_humidity_2m,is_day",  # light version for testing
             # "hourly": "temperature_2m,relative_humidity_2m,dew_point_2m,apparent_temperature,precipitation,rain,snowfall,snow_depth,shortwave_radiation,direct_radiation,diffuse_radiation,global_tilted_irradiance,direct_normal_irradiance,terrestrial_radiation,weather_code,pressure_msl,surface_pressure,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,vapour_pressure_deficit,et0_fao_evapotranspiration,wind_speed_100m,wind_speed_10m,wind_direction_10m,wind_direction_100m,wind_gusts_10m"
+            # "daily": "sunrise,sunset",
         }
         data = self.request_api(url, params)
 
+        # # ---------------------------------------------------------------------
+        # # TEMP CACHE
+        # # Create if it doesn't exist
+        # with open(pickle_filepath, "wb") as f:
+        #     pickle.dump(data, f)
+        # # ---------------------------------------------------------------------
+
         # Transform the data into a standard DataFrame
-        df_weather = self.construct_weather_dataframe(location_id, data)
-        # df_weather.head()
+        weather_df = self.construct_weather_dataframe(location_id, data)
 
-        # Save the weather data to a Parquet file (for the run/trimester/location)
-        self.save_weather_dataframe(run_id, location_id, df_weather)
+        # Save the weather data to GCS
+        if OpenMeteoClient.SAVE_TO_GCS:
+            # gcs_time = time.perf_counter()
+            parquet_filename = f"{run_id}_historical_{location_id}.raw.parquet"
+            cleaned_df = OpenMeteoHistoricalTable().save_dataframe_to_gcs(
+                weather_df,
+                "staging",
+                f"openmeteo/historical/{parquet_filename}",
+            )
+            # logger.trace(f"GCS upload time: {exec_time(gcs_time, fmt=True)}")  # break the progress logger line
 
-        return df_weather
+        if OpenMeteoClient.SAVE_TO_DISK:
+            cleaned_df = OpenMeteoHistoricalTable().clean_dataframe(weather_df)
+            # Save the weather data to a Parquet file (for the run/trimester/location)
+            self.save_weather_dataframe(run_id, location_id, cleaned_df)
+
+        return cleaned_df
 
 
 client = OpenMeteoClient()

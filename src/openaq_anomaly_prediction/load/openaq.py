@@ -22,9 +22,11 @@ from shapely import length
 
 from openaq_anomaly_prediction.config import Configuration as config  # noqa: F401
 from openaq_anomaly_prediction.load.gcp import bq, gcs
-from openaq_anomaly_prediction.load.schemas.locations import LocationsTable
-from openaq_anomaly_prediction.load.schemas.measurements import MeasurementsTable
-from openaq_anomaly_prediction.load.schemas.sensors import SensorsTable
+from openaq_anomaly_prediction.load.schemas.openaq_locations import OpenAQLocationsTable
+from openaq_anomaly_prediction.load.schemas.openaq_measurements import (
+    OpenAQMeasurementsTable,
+)
+from openaq_anomaly_prediction.load.schemas.openaq_sensors import OpenAQSensorsTable
 from openaq_anomaly_prediction.utils.helpers import (
     exec_time,
     format_duration,
@@ -297,7 +299,9 @@ class AreaDownloader:
         # print(results.head())
 
         # Get a full list of locations for the area
-        self.locations = LocationsTable().save_dataframe(res["results"], skip_bq=False)
+        self.locations = OpenAQLocationsTable().save_dataframe(
+            res["results"], skip_bq=False
+        )
 
         # Get a full list of sensors for the area (flatten "parameters")
         def _flatten_sensors(row):
@@ -320,7 +324,9 @@ class AreaDownloader:
         results["sensors_flat"] = results.apply(_flatten_sensors, axis=1)
         df_sensors_exploded = pd.DataFrame(results["sensors_flat"].explode().tolist())
 
-        self.sensors = SensorsTable().save_dataframe(df_sensors_exploded, skip_bq=False)
+        self.sensors = OpenAQSensorsTable().save_dataframe(
+            df_sensors_exploded, skip_bq=False
+        )
 
         # Get a full list of instruments for the area
         # df_instruments_exploded = results["instruments"].explode()
@@ -542,7 +548,7 @@ class AreaDownloader:
             if AreaDownloader.SAVE_TO_GCS:
                 gcs_time = time.perf_counter()
 
-                MeasurementsTable().save_dataframe_to_gcs(
+                OpenAQMeasurementsTable().save_dataframe_to_gcs(
                     all_measurements,
                     "staging",
                     f"openaq/measurements/{parquet_filename}",
@@ -905,7 +911,7 @@ class AreaDownloader:
             )
 
             # Trigger the load to Big Query from GCS Parquet files
-            MeasurementsTable().save_from_staging_bucket()
+            OpenAQMeasurementsTable().save_from_staging_bucket()
 
             period_logs["gcs_saving_duration"] = exec_time(save_start_time, 2)
             logger.debug(

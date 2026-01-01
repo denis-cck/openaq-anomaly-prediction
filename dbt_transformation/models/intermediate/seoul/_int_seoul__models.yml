@@ -1,0 +1,6 @@
+version: 2
+
+models:
+  # VIEW
+  - name: int_seoul__measurements_standardized
+    description: "Standardized Seoul measurements with filters applied (view)"

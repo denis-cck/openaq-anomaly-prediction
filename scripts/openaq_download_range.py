@@ -1,3 +1,4 @@
+import datetime
 import os
 import sys
 from pprint import pprint
@@ -78,16 +79,23 @@ try:
 
     all_logs = []
 
-    datetime_from = "2025-12-01T00:00:00+00:00"
-    datetime_to = "2025-12-31T23:59:59+00:00"
+    # run_label = "custom"
+    # datetime_from = "2025-12-01T00:00:00+00:00"
+    # datetime_to = "2025-12-31T23:59:59+00:00"
 
-    run_id_prefix = f"{CITY_ID}_custom"
+    d = 14
+    run_label = "Daily"
+    now_utc = datetime.datetime.now(datetime.timezone.utc)
+    datetime_from = (now_utc - datetime.timedelta(days=d)).isoformat(timespec="seconds")
+    datetime_to = now_utc.isoformat(timespec="seconds")
+
+    run_id_prefix = f"{CITY_ID.lower()}_{run_label.lower()}"
 
     logs = city.download_period_from_area(
         datetime_from=datetime_from,
         datetime_to=datetime_to,
         run_id_prefix=run_id_prefix,
-        run_label="Custom",
+        run_label=run_label,
     )
     all_logs.append(logs)
 

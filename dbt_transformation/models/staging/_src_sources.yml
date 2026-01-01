@@ -1,0 +1,76 @@
+version: 2
+
+sources:
+  - name: src_openaq  # Logical name used in dbt via the {{ source() }}
+    description: "Sources ingested from OpenAQ API"
+
+    database: "{{ env_var('GOOGLE_PROJECT_ID') }}"  # project = database
+    schema: "raw"  # dataset = schema
+    
+    config:
+      freshness:
+        warn_after: {count: 24, period: hour}
+        error_after: {count: 72, period: hour}
+      loaded_at_field: ingested_at
+
+    tables:
+      - name: src_openaq__locations
+        description: "Raw locations data from OpenAQ API"
+        columns:
+          - name: id
+            data_tests:
+              - unique  # $$$
+              - not_null
+
+      - name: src_openaq__sensors
+        description: "Raw sensors data from OpenAQ API"
+        columns:
+          - name: id
+            data_tests:
+              - unique  # $$$
+              - not_null
+          - name: location_id
+            data_tests:
+              - relationships:  # $$$
+                  arguments:
+                    to: source('src_openaq', 'src_openaq__locations')
+                    field: id
+
+      - name: src_openaq__measurements
+        description: "Raw measurements data (hourly) from OpenAQ API"
+        columns:
+          - name: sensor_id
+            data_tests:
+              - not_null
+          - name: period_datetimeTo_utc
+            description: "The partition key for BigQuery"
+          # - name: value
+          #   data_tests:
+          #     - accepted_values:
+          #         values: ['null']  # Allow nulls for now
+
+  - name: src_openmeteo  # Logical name used in dbt via the {{ source() }}
+    description: "Sources ingested from OpenMeteo API"
+
+    database: "{{ env_var('GOOGLE_PROJECT_ID') }}"  # project = database
+    schema: "raw"  # dataset = schema    
+    
+    config:
+      freshness:
+        warn_after: {count: 24, period: hour}
+        error_after: {count: 72, period: hour}
+      loaded_at_field: ingested_at
+
+    tables:
+      - name: src_openmeteo__historical
+        description: "Raw historical weather data (hourly) from OpenMeteo API"
+        columns:
+          - name: location_id
+            data_tests:
+              - not_null
+          - name: datetimeto_utc
+            description: "The partition key for BigQuery"
+          # - name: value
+          #   data_tests:
+          #     - accepted_values:
+          #         values: ['null']  # Allow nulls for now

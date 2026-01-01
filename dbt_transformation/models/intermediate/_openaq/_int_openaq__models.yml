@@ -1,0 +1,11 @@
+version: 2
+
+models:
+  # INCREMENTAL TABLE
+  - name: int_openaq__measurements_standardized
+    description: "Standardized OpenAQ measurements with locations and sensors data joined in (incremental)"
+    # columns:
+    #   - name: id
+    #     data_tests:
+    #       - unique  # $$$
+    #       - not_null

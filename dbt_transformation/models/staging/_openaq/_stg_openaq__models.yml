@@ -1,0 +1,50 @@
+version: 2
+
+# models:
+#   - name: stg_openaq__measurements
+#     description: "Create a clean staging table for OpenAQ measurements data"
+#     # tests:
+#     #   # This is a full select/groupby so it costs $$$ to run on the whole table
+#     #   - dbt_utils.unique_combination_of_columns:
+#     #       arguments:
+#     #         combination_of_columns:
+#     #           - sensor_id
+#     #           - period_datetimeTo_utc
+#     #         quote_columns: true
+  
+#   - name: stg_openaq__measurements
+#     description: "Create a clean staging table for OpenAQ measurements data"
+
+models:
+  # VIEW
+  - name: stg_openaq__locations
+    description: "Cleaned locations data (view)"
+    columns:
+      - name: id
+        data_tests:
+          - unique  # $$$
+          - not_null
+
+  # VIEW
+  - name: stg_openaq__sensors
+    description: "Cleaned sensors data with relationships to locations (view)"
+    columns:
+      - name: id
+        data_tests:
+          - unique  # $$$
+          - not_null
+
+  # INCREMENTAL TABLE
+  - name: stg_openaq__measurements
+    description: "Cleaned hourly measurements (incremental)"
+    # config:
+    #   materialized: incremental
+    #   incremental_strategy: insert_overwrite
+    #   partition_by:
+    #     field: datetimeto_utc
+    #     data_type: timestamp
+    #     granularity: day
+    # data_tests:
+    #   # Use our incremental uniqueness test here to save cost
+    #   - incremental_uniqueness:
+    #       combination_of_columns: [sensor_id, datetimeto_utc]
