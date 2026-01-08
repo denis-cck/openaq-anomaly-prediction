@@ -19,6 +19,21 @@ from openaq_anomaly_prediction.config import Configuration as config
 from openaq_anomaly_prediction.utils.logger import ProgressLogger, logger
 
 
+def smart_display(data):
+    """Detects environment and uses the best display method available."""
+    try:
+        # Check if we are in an interactive shell (Jupyter/Colab)
+        shell = get_ipython().__class__.__name__  # type: ignore
+        if shell == "ZMQInteractiveShell":
+            from IPython.display import display
+
+            display(data)
+        else:
+            print(data)
+    except (NameError, ImportError):
+        print(data)
+
+
 def get_iso_now() -> str:
     """Get the current date and time in ISO 8601 format with UTC offset."""
     return datetime.now(timezone.utc).isoformat(timespec="seconds")

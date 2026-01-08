@@ -27,6 +27,6 @@ models:
     intermediate:
       +schema: intermediate
       +materialized: view
-    # serving:
-    #   +schema: serving
-    #   +materialized: view
+    serving:
+      +schema: serving
+      +materialized: view

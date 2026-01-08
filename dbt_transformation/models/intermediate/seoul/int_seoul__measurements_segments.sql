@@ -11,7 +11,7 @@
             "data_type": "timestamp",
             "granularity": "day",
         },
-        cluster_by=["location_id", "segment_id"],
+        cluster_by=["location_id", "segment_id", "segment_tier"],
     )
 }}  -- No incremental strategy to simplify shattering
 
@@ -215,6 +215,7 @@ with
         select
             location_id,
             datetimeto_utc,
+            datetimeto_local,
             hours_since_last,
             concurrent_sensors,
             is_new_segment,
@@ -273,6 +274,7 @@ with
 select
     location_id,
     datetimeto_utc,
+    datetimeto_local,
     hours_since_last,
     concurrent_sensors,
     is_new_segment,

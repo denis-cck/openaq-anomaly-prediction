@@ -71,6 +71,7 @@ select
     weather_latitude,
     weather_longitude,
     timezone,
+
     elevation,
     temperature_2m,
     relative_humidity_2m,
@@ -101,6 +102,7 @@ select
     wind_direction_100m,
     wind_gusts_10m,
     is_day,
+
     ingested_at,
     updated_at,
     refreshed_at

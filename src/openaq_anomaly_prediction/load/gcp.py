@@ -135,6 +135,9 @@ class BigQueryClient:
         dry_run = kwargs.get("dry_run", False)
         query_cache = kwargs.get("query_cache", True)
         query_parameters = kwargs.get("query_parameters", None)
+        debug = kwargs.get("debug", False)
+
+        start_time = time.perf_counter()
 
         query_parameters_fmt = []
         if query_parameters is not None:
@@ -157,12 +160,17 @@ class BigQueryClient:
             query_job = self.client.query(query, job_config=job_config)
 
             if dry_run:
-                print(
+                logger.debug(
                     f"This query will process {query_job.total_bytes_processed / 10**6:.2f} MB."
                 )
                 return None
 
-            return query_job.result().to_dataframe(create_bqstorage_client=True)
+            df = query_job.result().to_dataframe(create_bqstorage_client=True)
+
+            if debug:
+                logger.debug(self.get_query_result_summary(df, start_time))
+
+            return df
 
         except GoogleCloudError as e:
             error = "BigQuery Error: "
@@ -195,6 +203,21 @@ class BigQueryClient:
         #     ("test_locations_ids", "STRING", ["12", "34", "56"]),
         # ]
         # df = bq.query(query, query_parameters=query_parameters, dry_run=False)
+
+    def get_query_result_summary(
+        self, df: pd.DataFrame, start_time: float, **kwargs
+    ) -> str:
+        """Get a summary string of the BigQuery result (dataframe)."""
+
+        # title = kwargs.get("title", "Measurements DataFrame")
+        # sep_length = kwargs.get("sep_length", 64)
+        end = kwargs.get("end", "")
+
+        if df is None:
+            return f"> [BigQuery]: Request returned no data.{end}"
+
+        memory_usage = df.memory_usage(index=True, deep=True).sum() / (1024**2)  # in MB
+        return f"> [BigQuery]: Request finished in {time.perf_counter() - start_time:.2f}s  ->  {len(df):,} rows, {memory_usage:.2f} MB{end}"
 
     def create_dataset_if_not_exists(self, dataset_id: str, **kwargs) -> None:
         """Create a BigQuery dataset if it does not exist."""

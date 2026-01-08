@@ -1,0 +1,25 @@
+[theme]
+base = "light"
+primaryColor = "#FF4B4B" # Optional: Keep your accent color
+backgroundColor = "#FFFFFF" # Force white main background
+secondaryBackgroundColor = "#F0F2F6" # Force white sidebar (optional)
+
+# font = "Google Sans Flex:https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,wght@6..144,1..1000&display=swap"
+# font = "Inter Tight:https://fonts.googleapis.com/css2?family=Inter+Tight:ital,wght@0,100..900;1,100..900&display=swap"
+font = "Google Sans:https://fonts.googleapis.com/css2?family=Google+Sans:ital,opsz,wght@0,17..18,400..700;1,17..18,400..700&display=swap"
+textColor = "#31333F"
+
+# font="Google Sans Flex"
+# baseFontSize=16
+# headingFont = "sans-serif"
+# codeFont = "monospace"
+
+# [theme.sidebar]
+# font = "sans-serif"
+# headingFont = "sans-serif"
+# codeFont = "monospace"
+
+[server]
+runOnSave = true
+# Add the directory containing your python file here
+folderWatchList = ["src/openaq_anomaly_prediction/core"]
