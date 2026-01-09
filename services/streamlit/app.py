@@ -476,7 +476,7 @@ if "selected_date" not in st.session_state:
     st.session_state["selected_date"] = starting_date
 
 
-st.sidebar.date_input("Date :", value=starting_date.date(), key="selected_date")
+st.sidebar.date_input("Date :", key="selected_date")
 
 map_style = add_map_style_selector()
 
