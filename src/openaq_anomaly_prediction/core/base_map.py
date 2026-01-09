@@ -26,6 +26,7 @@ class BaseMap:
             y = kwargs.get("y", 0.815)
             len = kwargs.get("len", 0.3)
             thickness = kwargs.get("thickness", 15)
+            bgcolor = kwargs.get("bgcolor", "rgba(255,255,255, 1)")
 
             return dict(
                 # tickmode="array",
@@ -35,7 +36,7 @@ class BaseMap:
                 y=y,
                 len=len,
                 thickness=thickness,
-                bgcolor="rgba(255,255,255, 1)",
+                bgcolor=bgcolor,
                 bordercolor="white",
                 borderwidth=1,
                 title=dict(text=""),

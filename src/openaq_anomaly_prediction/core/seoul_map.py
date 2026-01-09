@@ -269,6 +269,10 @@ class SeoulMap(BaseMap):
         map_df = df.copy()
 
         map_style = kwargs.get("map_style", "basic")
+        map_zoom = kwargs.get("map_zoom", 10.1)
+
+        width = kwargs.get("width", 1024)
+        height = kwargs.get("height", 760)
 
         title = kwargs.get("title", "SEOUL - Scatter Map")
         title_config = kwargs.get("title_config", {"upper": False})
@@ -276,6 +280,9 @@ class SeoulMap(BaseMap):
         label = kwargs.get("label", "Pollutant")
         label_config = kwargs.get("label_config", {})
 
+        date_col = kwargs.get("date_col", "oaq_datetimeto_local")
+
+        colorbar = kwargs.get("colorbar", True)
         colorbar_config = kwargs.get(
             "colorbar_config",
             {
@@ -336,6 +343,7 @@ class SeoulMap(BaseMap):
         )
 
         animation_frame = kwargs.get("animation_frame", None)
+        animation_frame_hover = {animation_frame: False} if animation_frame else {}
         animation_group = kwargs.get("animation_group", None)
 
         # ---------------------------------------------------------------------
@@ -363,183 +371,187 @@ class SeoulMap(BaseMap):
             size=size_column,
             size_max=size_max,
             hover_name=hover_name,
-            hover_data={animation_frame: False, **hover_data},  # type: ignore
+            hover_data={**animation_frame_hover, **hover_data},  # type: ignore
             animation_frame=animation_frame,
             animation_group=animation_group,
             opacity=0.9,  # Add this here
             range_color=[coloraxes_min, coloraxes_max],
         )
 
-        # ---------------------------------------------------------------------
-        # ANNOTATIONS (ANIMATION UPDATES)
-
         annotations = []
-        # annotations += self.customize_title(title, **title_config)
 
-        first_datetime = df["oaq_datetimeto_local"].iloc[0]
-
-        # days_fr = [
-        #     "Lundi",
-        #     "Mardi",
-        #     "Mercredi",
-        #     "Jeudi",
-        #     "Vendredi",
-        #     "Samedi",
-        #     "Dimanche",
-        # ]
-        # current_day_fr = days_fr[first_datetime.weekday()]
-        # date_str = f"{current_day_fr} {first_datetime.strftime('%d/%m')}"
-
-        initial_hour_anno = self.customize_hour(first_datetime.strftime("%H:%M"))
-        # static_date_anno = self.customize_date(first_datetime.strftime("%d/%m/%Y"))
-        # static_date_anno = self.customize_date(
-        #     f'<span style="font-size: 48px;">{current_day_fr}</span><br><span style="font-size: 24px;">{first_datetime.strftime("%d/%m/%Y")}</span>'
-        # )
         static_label_anno = self.customize_label(label, **label_config)
+        animations = static_label_anno
 
-        annotations = initial_hour_anno + static_label_anno
-        # annotations = initial_hour_anno + static_date_anno + static_label_anno
+        if animation_frame is not None:
+            # ---------------------------------------------------------------------
+            # ANNOTATIONS (ANIMATION UPDATES)
 
-        # ---------------------------------------------------------------------
-        # Update each frame's layout with the updated map layers and title
+            # annotations += self.customize_title(title, **title_config)
 
-        # Initialize each base annotation
-        base_annotations_list = static_label_anno
+            first_datetime = df[date_col].iloc[0]
 
-        # 2. Loop through every frame to update the text
-        for frame in fig.frames:
-            # frame.name holds the value of the animation_frame column (e.g., "2025-12-11 14:30")
-            frame_value = frame.name  # type: ignore
+            # days_fr = [
+            #     "Lundi",
+            #     "Mardi",
+            #     "Mercredi",
+            #     "Jeudi",
+            #     "Vendredi",
+            #     "Samedi",
+            #     "Dimanche",
+            # ]
+            # current_day_fr = days_fr[first_datetime.weekday()]
+            # date_str = f"{current_day_fr} {first_datetime.strftime('%d/%m')}"
 
-            dt_current = pd.to_datetime(frame_value)
-            new_hour_str = dt_current.strftime("%H:%M")
+            initial_hour_anno = self.customize_hour(first_datetime.strftime("%H:%M"))
+            # static_date_anno = self.customize_date(first_datetime.strftime("%d/%m/%Y"))
+            # static_date_anno = self.customize_date(
+            #     f'<span style="font-size: 48px;">{current_day_fr}</span><br><span style="font-size: 24px;">{first_datetime.strftime("%d/%m/%Y")}</span>'
+            # )
 
-            dynamic_hour_anno = self.customize_hour(new_hour_str)
-            frame_annotations = dynamic_hour_anno + base_annotations_list
-            frame.layout.annotations = frame_annotations
+            annotations += initial_hour_anno
+            # annotations = initial_hour_anno + static_date_anno + static_label_anno
 
-        # ---------------------------------------------------------------------
-        # SLIDER
+            # ---------------------------------------------------------------------
+            # Update each frame's layout with the updated map layers and title
 
-        # Vertical position for the whole row
-        CONTROL_ROW_Y = 0.086
-        BUTTONS_ROW_Y = CONTROL_ROW_Y + 0.019
+            # Initialize each base annotation
+            base_annotations_list = static_label_anno
 
-        # Horizontal spacing logic
-        SLIDER_X_START = 0.16  # Where the slider track begins
-        BUTTON_GAP = 0.0  # Gap between buttons
-        SLIDER_GAP = 0.022  # Gap between Pause button and Slider
+            # 2. Loop through every frame to update the text
+            for frame in fig.frames:
+                # frame.name holds the value of the animation_frame column (e.g., "2025-12-11 14:30")
+                frame_value = frame.name  # type: ignore
 
-        # Calculated Button Positions (Right to Left)
-        PAUSE_BTN_X = SLIDER_X_START - SLIDER_GAP
-        PLAY_BTN_X = PAUSE_BTN_X - BUTTON_GAP
+                dt_current = pd.to_datetime(frame_value)
+                new_hour_str = dt_current.strftime("%H:%M")
 
-        # Customize the slider
-        fig.layout.sliders[0].update(
-            active=0,
-            yanchor="top",
-            xanchor="left",
-            # 1. Position and Length
-            currentvalue={
-                "prefix": "",  # Text before the timestamp
-                "visible": False,
-                "xanchor": "left",
-                "font": {"size": 32, "color": "rgba(60, 60, 60, 0.0)"},
-            },
-            pad={"b": 0, "t": 0},
-            len=0.52,  # Length of slider (0.9 = 90% of width)
-            # Position logic
-            x=SLIDER_X_START,  # Anchored X
-            y=CONTROL_ROW_Y,  # Anchored Y
-            # x=0.166,  # Horizontal start position
-            # y=0.22,  # Vertical position
-            # 2. Colors and Theme
-            # bgcolor="#e8e8e8",  # Background of the track
-            bgcolor="#FFFFFF",  # Background of the track
-            activebgcolor="#FFFFFF",  # Color of the track "behind" the handle (progress)
-            # Border
-            bordercolor="rgba(128, 128, 128, 0.2)",  # border of the container
-            # bordercolor="#FFFFFF",  # border of the container
-            borderwidth=8,
-            # Slider ticks and label (hiding both)
-            ticklen=0,  # Hide tick lines if you have too many frames
-            tickcolor="rgba(0,0,0,0)",
-            font={"size": 14, "color": "rgba(0,0,0,0)"},
-        )
+                dynamic_hour_anno = self.customize_hour(new_hour_str)
+                frame_annotations = dynamic_hour_anno + base_annotations_list
+                frame.layout.annotations = frame_annotations
 
-        # Hide all the slider's labels
-        for step in fig.layout.sliders[0].steps:
-            original_label = step["label"]
-            dt = pd.to_datetime(original_label)
-            step["label"] = f"<b>{dt.strftime('%H:%M')}</b>"
-            # step["label"] = ""
+            # ---------------------------------------------------------------------
+            # SLIDER
 
-        # ---------------------------------------------------------------------
-        # BUTTONS CONFIGURATION
+            # Vertical position for the whole row
+            CONTROL_ROW_Y = 0.086
+            BUTTONS_ROW_Y = CONTROL_ROW_Y + 0.019
 
-        # What WORKS for sure: play(redraw=True, fromcurrent=True), pause(redraw=False)
-        # We define the list separately
-        custom_buttons = [
-            {
-                "type": "buttons",
-                "showactive": False,
-                "direction": "left",
-                "x": PLAY_BTN_X,  # Calculated above
-                "y": BUTTONS_ROW_Y,  # Same Y as slider
-                # "x": 0.098,
-                # "y": 0.102,
-                "pad": {"r": 60, "t": 0},
-                "font": {"color": "rgba(100, 100, 100, 0.8)"},
-                "bgcolor": "white",
-                "bordercolor": "rgba(128, 128, 128, 0.2)",
-                "borderwidth": 8,
-                "buttons": [
-                    {
-                        "label": "&#9654;",
-                        "method": "animate",
-                        "args": [
-                            None,
-                            {
-                                "frame": {"duration": 100, "redraw": True},
-                                "transition": {"duration": 0},
-                                "fromcurrent": True,
-                                "mode": "immediate",
-                            },
-                        ],
-                    },
-                ],
-            },
-            {
-                "type": "buttons",
-                "showactive": False,
-                "direction": "left",
+            # Horizontal spacing logic
+            SLIDER_X_START = 0.16  # Where the slider track begins
+            BUTTON_GAP = 0.0  # Gap between buttons
+            SLIDER_GAP = 0.022  # Gap between Pause button and Slider
+
+            # Calculated Button Positions (Right to Left)
+            PAUSE_BTN_X = SLIDER_X_START - SLIDER_GAP
+            PLAY_BTN_X = PAUSE_BTN_X - BUTTON_GAP
+
+            # Customize the slider
+            fig.layout.sliders[0].update(
+                active=0,
+                yanchor="top",
+                xanchor="left",
+                # 1. Position and Length
+                currentvalue={
+                    "prefix": "",  # Text before the timestamp
+                    "visible": False,
+                    "xanchor": "left",
+                    "font": {"size": 32, "color": "rgba(60, 60, 60, 0.0)"},
+                },
+                pad={"b": 0, "t": 0},
+                len=0.52,  # Length of slider (0.9 = 90% of width)
                 # Position logic
-                "x": PAUSE_BTN_X,  # Calculated above
-                "y": BUTTONS_ROW_Y,  # Same Y as slider
-                # "x": 0.146,
-                # "y": 0.102,
-                "pad": {"r": 10, "t": 0},
-                "font": {"color": "rgba(100, 100, 100, 0.8)"},
-                "bgcolor": "white",
-                "bordercolor": "rgba(128, 128, 128, 0.2)",
-                "borderwidth": 8,
-                "buttons": [
-                    {
-                        "label": "&#10074;&#10074;",
-                        "method": "animate",
-                        "args": [
-                            [None],
-                            {
-                                "frame": {"duration": 0, "redraw": False},
-                                "mode": "immediate",
-                                "transition": {"duration": 0},
-                            },
-                        ],
-                    },
-                ],
-            },
-        ]
-        fig.layout.updatemenus = custom_buttons
+                x=SLIDER_X_START,  # Anchored X
+                y=CONTROL_ROW_Y,  # Anchored Y
+                # x=0.166,  # Horizontal start position
+                # y=0.22,  # Vertical position
+                # 2. Colors and Theme
+                # bgcolor="#e8e8e8",  # Background of the track
+                bgcolor="#FFFFFF",  # Background of the track
+                activebgcolor="#FFFFFF",  # Color of the track "behind" the handle (progress)
+                # Border
+                bordercolor="rgba(128, 128, 128, 0.2)",  # border of the container
+                # bordercolor="#FFFFFF",  # border of the container
+                borderwidth=8,
+                # Slider ticks and label (hiding both)
+                ticklen=0,  # Hide tick lines if you have too many frames
+                tickcolor="rgba(0,0,0,0)",
+                font={"size": 14, "color": "rgba(0,0,0,0)"},
+            )
+
+            # Hide all the slider's labels
+            for step in fig.layout.sliders[0].steps:
+                original_label = step["label"]
+                dt = pd.to_datetime(original_label)
+                step["label"] = f"<b>{dt.strftime('%H:%M')}</b>"
+                # step["label"] = ""
+
+            # ---------------------------------------------------------------------
+            # BUTTONS CONFIGURATION
+
+            # What WORKS for sure: play(redraw=True, fromcurrent=True), pause(redraw=False)
+            # We define the list separately
+            custom_buttons = [
+                {
+                    "type": "buttons",
+                    "showactive": False,
+                    "direction": "left",
+                    "x": PLAY_BTN_X,  # Calculated above
+                    "y": BUTTONS_ROW_Y,  # Same Y as slider
+                    # "x": 0.098,
+                    # "y": 0.102,
+                    "pad": {"r": 60, "t": 0},
+                    "font": {"color": "rgba(100, 100, 100, 0.8)"},
+                    "bgcolor": "white",
+                    "bordercolor": "rgba(128, 128, 128, 0.2)",
+                    "borderwidth": 8,
+                    "buttons": [
+                        {
+                            "label": "&#9654;",
+                            "method": "animate",
+                            "args": [
+                                None,
+                                {
+                                    "frame": {"duration": 100, "redraw": True},
+                                    "transition": {"duration": 0},
+                                    "fromcurrent": True,
+                                    "mode": "immediate",
+                                },
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "type": "buttons",
+                    "showactive": False,
+                    "direction": "left",
+                    # Position logic
+                    "x": PAUSE_BTN_X,  # Calculated above
+                    "y": BUTTONS_ROW_Y,  # Same Y as slider
+                    # "x": 0.146,
+                    # "y": 0.102,
+                    "pad": {"r": 10, "t": 0},
+                    "font": {"color": "rgba(100, 100, 100, 0.8)"},
+                    "bgcolor": "white",
+                    "bordercolor": "rgba(128, 128, 128, 0.2)",
+                    "borderwidth": 8,
+                    "buttons": [
+                        {
+                            "label": "&#10074;&#10074;",
+                            "method": "animate",
+                            "args": [
+                                [None],
+                                {
+                                    "frame": {"duration": 0, "redraw": False},
+                                    "mode": "immediate",
+                                    "transition": {"duration": 0},
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ]
+            fig.layout.updatemenus = custom_buttons
 
         # ---------------------------------------------------------------------
         # MAP LAYERS
@@ -590,11 +602,11 @@ class SeoulMap(BaseMap):
         # CUSTOMIZE GENERAL LAYOUT
 
         fig.update_layout(
-            width=1024,
-            height=760,
+            width=width,
+            height=height,
             margin={"r": 0, "t": 0, "l": 0, "b": 0},
             map_style=map_style,  # ['basic', 'carto-darkmatter', 'carto-darkmatter-nolabels', 'carto-positron', 'carto-positron-nolabels', 'carto-voyager', 'carto-voyager-nolabels', 'dark', 'light', 'open-street-map', 'outdoors', 'satellite', 'satellite-streets', 'streets', 'white-bg']
-            map_zoom=10.1,
+            map_zoom=map_zoom,
             map_center={"lat": 37.55414276122411, "lon": 126.97022422324727},
             # Title
             annotations=annotations,
@@ -603,4 +615,8 @@ class SeoulMap(BaseMap):
             # Legend
             coloraxis_colorbar=self.customize_colorbar(**colorbar_config),
         )
+
+        if not colorbar:
+            fig.update_coloraxes(showscale=False)
+
         return fig
