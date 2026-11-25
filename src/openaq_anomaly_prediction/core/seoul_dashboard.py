@@ -87,6 +87,23 @@ KOREAN_FLAG_CS = [
 ]
 
 
+def _utc_offset_label(df: pd.DataFrame) -> str:
+    """Build the x-axis title from the data's own UTC offset (e.g. GMT+9).
+
+    Compares the naive local time with the UTC-aware `ds` column, so no
+    timezone needs to be hardcoded or loaded separately.
+    """
+    if df.empty or "ds" not in df or "oaq_datetimeto_local" not in df:
+        return "Heure locale"
+    # Convert to UTC first: DuckDB returns `ds` in the machine's timezone.
+    utc_naive = df["ds"].dt.tz_convert("UTC").dt.tz_localize(None)
+    offset = (df["oaq_datetimeto_local"] - utc_naive).mode().iloc[0]
+    minutes = int(offset.total_seconds() // 60)
+    sign = "+" if minutes >= 0 else "-"
+    h, m = divmod(abs(minutes), 60)
+    return f"Heure locale (GMT{sign}{h}{f':{m:02d}' if m else ''})"
+
+
 class SeoulDashboard:
     def __init__(self):
         self.seoul_map = SeoulMap()
@@ -159,14 +176,21 @@ class SeoulDashboard:
         return daily_df
 
     def get_anomalies(self) -> pd.DataFrame:
-        # Get the loaded days dataframe or load it if not already done
-
         # From parquet files
         anomalies_path = os.path.join(
             cfg.DATA_EXPORT_PATH, "anomalies_with_coordinates.parquet"
         )
 
         anomalies_df = pd.read_parquet(anomalies_path)
+
+        # Attach each anomaly's local time (computed upstream from the
+        # location's own timezone) instead of assuming a fixed timezone.
+        local_times = self.get_loaded_days()[
+            ["location_id", "ds", "oaq_datetimeto_local"]
+        ].drop_duplicates(["location_id", "ds"])
+        anomalies_df = anomalies_df.merge(
+            local_times, on=["location_id", "ds"], how="left"
+        )
 
         return anomalies_df
 
@@ -311,7 +335,7 @@ class SeoulDashboard:
 
         # The axes legends
         fig.update_xaxes(
-            title="Heure locale (GMT+9)",
+            title=_utc_offset_label(daily_average_df),
             title_font=dict(size=12),
             tickformat="%H:%M",  # Format as Hour:Minute
             dtick=3600000 * 3,  # 3 hours in milliseconds

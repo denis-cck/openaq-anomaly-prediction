@@ -280,6 +280,7 @@ def load_data(pollutant_col, date):
                 pollutant_col: (pollutant_col, "mean"),
                 f"{pollutant_col}_pred": (f"{pollutant_col}_pred", "mean"),
                 "is_anomaly": ("is_anomaly", "max"),
+                "ds": ("ds", "first"),
             }
         )
         .reset_index()
@@ -518,12 +519,11 @@ st.space("small")
 
 with st.spinner(text="Chargement...", show_time=False, width="content"):
     anomalies = load_anomalies()
-    anomalies["ds"] = pd.to_datetime(anomalies["ds"])
 
-    daily_anomalies = anomalies[
-        anomalies["ds"].dt.date == st.session_state["selected_date"]
+    daily_anomalies = anomalies.loc[
+        anomalies["oaq_datetimeto_local"].dt.date == st.session_state["selected_date"]
     ]
-    anomalies_unique_dt = daily_anomalies["ds"].unique().tolist()
+    anomalies_unique_dt = sorted(daily_anomalies["oaq_datetimeto_local"].unique())
 
 col1, col2 = st.columns((3, 1), vertical_alignment="bottom")
 
@@ -536,13 +536,14 @@ else:
     col1.header(f"Anomalies détectées ({len(anomalies_unique_dt)})")
     option = col2.selectbox(
         "Selectionner une heure",
-        (dt.strftime("%Y-%m-%d %H:%M") for dt in anomalies_unique_dt),
+        anomalies_unique_dt,
+        format_func=lambda dt: pd.Timestamp(dt).strftime("%d/%m/%Y %H:%M"),
         label_visibility="collapsed",
     )
     st.space("small")
     render_anomalies(
         st.session_state["selected_date"],
-        daily_anomalies[daily_anomalies["ds"] == option],
+        daily_anomalies[daily_anomalies["oaq_datetimeto_local"] == option],
         three_days_df,
         map_style=map_style,
     )
