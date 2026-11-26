@@ -1,9 +1,8 @@
 name: Deploy MkDocs to GitHub Pages
 
-on:
-  push:
-    branches:
-      - main
+# Automatic triggers disabled (was: push to main).
+# Run manually from the Actions tab; restore the original trigger to re-enable.
+on: workflow_dispatch
 
 jobs:
   deploy-docs:

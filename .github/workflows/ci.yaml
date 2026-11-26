@@ -1,6 +1,8 @@
 name: CI
 
-on: [push, pull_request]
+# Automatic triggers disabled (was: on: [push, pull_request]).
+# Run manually from the Actions tab; restore the line above to re-enable.
+on: workflow_dispatch
 
 jobs:
   CI:
